@@ -324,4 +324,172 @@ robot/
 
 - 项目维护者: [维护者邮箱]
 - 项目主页: [项目 GitHub 地址]
+
+## 功能特点
+
+- **动作组管理**
+  - 支持动作组的实时录制和回放
+  - 动作组的并行执行
+  - 动作组的保存和加载
+  - 支持动作组的实时停止
+
+## API 参考
+
+### RPC 接口
+
+1. 基础控制
+```python
+# 设置舵机角度
+set_servo_angle(servo_id: str, angle: float) -> bool
+
+# 读取传感器数据
+get_sensor_data(sensor_id: str) -> Any
+```
+
+2. 动作组控制
+```python
+# 执行动作组（支持并行执行）
+execute_action_group(group_name: str, parallel: bool = False) -> bool
+
+# 停止指定动作组
+stop_action_group(group_name: str) -> bool
+
+# 停止所有动作组
+stop_all_groups() -> bool
+```
+
+3. 动作录制
+```python
+# 开始录制动作
+start_recording() -> bool
+
+# 停止录制并获取动作数据
+stop_recording() -> List[Dict]
+
+# 保存录制的动作组
+save_recorded_actions(group_name: str) -> bool
+```
+
+### 动作组录制示例
+
+1. 通过 RPC 客户端录制动作：
+```python
+from xmlrpc.client import ServerProxy
+
+# 连接到RPC服务器
+client = ServerProxy('http://localhost:8000')
+
+# 开始录制
+client.start_recording()
+
+# 执行一系列舵机动作
+client.set_servo_angle('servo1', 45)
+time.sleep(1)
+client.set_servo_angle('servo1', 90)
+time.sleep(1)
+client.set_servo_angle('servo1', 0)
+
+# 停止录制并保存
+actions = client.stop_recording()
+client.save_recorded_actions('my_action')
+```
+
+2. 执行录制的动作组：
+```python
+# 串行执行
+client.execute_action_group('my_action')
+
+# 并行执行（与其他动作组同时运行）
+client.execute_action_group('my_action', parallel=True)
+
+# 停止正在执行的动作组
+client.stop_action_group('my_action')
+```
+
+### 传感器支持
+
+1. 超声波传感器 (HC-SR04)
+```yaml
+sensors:
+  ultrasonic1:
+    type: ultrasonic
+    trigger_pin: 17
+    echo_pin: 27
+```
+
+2. 红外传感器
+```yaml
+sensors:
+  infrared1:
+    type: infrared
+    pin: 22
+```
+
+使用示例：
+```python
+# 读取超声波传感器距离
+distance = client.get_sensor_data('ultrasonic1')  # 返回厘米数
+
+# 读取红外传感器状态
+detected = client.get_sensor_data('infrared1')    # 返回布尔值
+```
+
+## 高级功能
+
+### 1. 并行动作执行
+
+系统支持多个动作组的并行执行：
+
+```python
+# 启动多个动作组
+client.execute_action_group('wave', parallel=True)
+client.execute_action_group('dance', parallel=True)
+
+# 停止特定动作组
+client.stop_action_group('wave')
+
+# 停止所有动作组
+client.stop_all_groups()
+```
+
+### 2. 动作组录制和保存
+
+动作组可以通过实时录制创建：
+
+1. 文件存储格式 (YAML):
+```yaml
+my_action:
+  - servo_id: servo1
+    angle: 45
+    delay: 0.5
+  - servo_id: servo1
+    angle: 90
+    delay: 1.0
+```
+
+2. 保存位置：
+- 动作组文件保存在 `actions/` 目录
+- 每个动作组独立保存为 YAML 文件
+- 文件名格式：`<action_name>.yaml`
+
+### 3. 动作组管理
+
+- 支持动态加载和更新动作组
+- 提供动作组的启动、停止和状态查询
+- 支持多个动作组的并行控制
+- 提供优雅的停止机制
+
+## 最佳实践
+
+4. 动作组开发
+   - 使用录制功能创建基础动作
+   - 手动优化录制的延时参数
+   - 合理使用并行执行功能
+   - 注意动作组之间的冲突处理
+
+5. 传感器使用
+   - 合理设置采样频率
+   - 注意传感器的工作范围
+   - 做好数据校准和滤波
+   - 考虑环境因素的影响
 ```
