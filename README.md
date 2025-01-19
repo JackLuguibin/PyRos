@@ -450,25 +450,192 @@ config.rollback("v0.9.0")
 - 回滚支持
 - 元数据记录
 
+### 10. 动作组合成
+
+提供丰富的动作组合和编辑功能：
+
+```python
+from robot.actions.composer import ActionComposer
+
+# 创建动作组合器
+composer = ActionComposer()
+
+# 合并动作序列
+merged = composer.merge_actions(
+    action1, 
+    action2,
+    blend_frames=5  # 过渡帧数
+)
+
+# 提取子序列
+subsequence = composer.extract_subsequence(
+    frames,
+    start_idx=10,
+    end_idx=20,
+    servo_ids=['servo1', 'servo2']  # 可选的舵机ID过滤
+)
+
+# 镜像动作
+mirrored = composer.mirror_action(
+    frames,
+    servo_pairs={'left_arm': 'right_arm'}
+)
+
+# 时序缩放
+scaled = composer.scale_timing(
+    frames,
+    scale_factor=0.5  # <1 加速，>1 减速
+)
+
+# 反转动作
+reversed_action = composer.reverse_action(frames)
+```
+
+特点：
+- 平滑动作过渡
+- 子序列提取
+- 动作镜像
+- 时序调整
+- 动作反转
+
+### 11. 动作验证
+
+提供动作序列的合法性验证：
+
+```python
+from robot.actions.validator import ActionValidator
+
+# 创建验证器
+validator = ActionValidator()
+
+# 设置关节限位
+validator.set_joint_limits({
+    'servo1': (-90, 90),
+    'servo2': (0, 180)
+})
+
+# 验证动作序列
+issues = validator.validate_sequence(frames)
+
+# 处理验证问题
+for issue in issues:
+    frame_idx = issue['frame_index']
+    for servo_id, problem in issue['issues'].items():
+        if problem['type'] == 'angle_limit':
+            print(f"帧 {frame_idx} 舵机 {servo_id} 角度超限: "
+                  f"{problem['value']}度")
+        elif problem['type'] == 'velocity_limit':
+            print(f"帧 {frame_idx} 舵机 {servo_id} 速度超限: "
+                  f"{problem['value']}度/秒")
+```
+
+验证项目：
+- 角度限位检查
+- 速度限制验证
+- 加速度约束
+- 时序合理性
+
 ## 最佳实践
 
-19. 动作优化
+1. 硬件配置
+   - 使用独立的舵机电源供应
+   - 注意 GPIO 引脚的电平要求
+   - 合理布局接线，避免干扰
+
+2. 软件开发
+   - 遵循模块化设计原则
+   - 做好异常处理
+   - 及时记录日志
+   - 注意资源的及时释放
+
+3. 系统维护
+   - 定期备份配置文件
+   - 监控系统日志
+   - 及时更新软件依赖
+
+4. 姿态控制
+   - 定期校准 IMU 传感器
+   - 合理设置滤波参数
+   - 注意采样频率
+   - 考虑环境振动影响
+
+5. 平衡控制
+   - 根据实际负载调整 PID 参数
+   - 避免积分饱和
+   - 添加输出限幅
+   - 实现平滑控制过渡
+
+6. 动作编辑
+   - 使用预览功能验证动作
+   - 合理设置动作速度
+   - 注意舵机负载
+   - 保存重要动作序列
+
+7. 视觉处理
+   - 合理设置检测参数
+   - 注意图像预处理
+   - 考虑光照影响
+   - 优化处理性能
+
+8. 动作校准
+   - 选择合适的参考动作
+   - 定期更新参考数据
+   - 合理设置差异阈值
+   - 记录校准日志
+
+9. 并行执行
+   - 控制并行任务数量
+   - 注意资源竞争
+   - 实现优雅停止
+   - 处理执行异常
+
+10. 消息处理
+    - 避免长时间阻塞
+    - 合理设置队列大小
+    - 实现消息过滤
+    - 处理超时情况
+
+11. 状态管理
+    - 定义清晰的状态转换
+    - 实现状态恢复机制
+    - 记录状态变化历史
+    - 处理异常状态
+
+12. 任务规划
+    - 合理设置任务依赖
+    - 实现任务超时处理
+    - 提供任务取消机制
+    - 记录任务执行日志
+
+13. 动作优化
     - 合理设置速度限制
     - 选择合适的平滑窗口
     - 注意加速度约束
     - 避免过度平滑
 
-20. 动作分析
+14. 动作分析
     - 定期检查异常
     - 关注关键帧
     - 监控性能指标
     - 分析优化效果
 
-21. 版本管理
+15. 版本管理
     - 规范版本命名
     - 添加详细注释
     - 定期清理旧版本
     - 保持版本完整性
+
+16. 动作组合
+    - 合理设置过渡帧数
+    - 注意动作连接处的平滑性
+    - 验证镜像动作的对称性
+    - 调整合适的时序缩放比例
+
+17. 动作验证
+    - 设置合理的限位范围
+    - 定期验证动作序列
+    - 及时处理验证问题
+    - 记录验证结果
 
 ## 系统特点
 
@@ -939,6 +1106,18 @@ robot/
     - 添加详细注释
     - 定期清理旧版本
     - 保持版本完整性
+
+16. 动作组合
+    - 合理设置过渡帧数
+    - 注意动作连接处的平滑性
+    - 验证镜像动作的对称性
+    - 调整合适的时序缩放比例
+
+17. 动作验证
+    - 设置合理的限位范围
+    - 定期验证动作序列
+    - 及时处理验证问题
+    - 记录验证结果
 
 ## 版本历史
 
@@ -1412,3 +1591,15 @@ status = planner.get_task_status("grab")
     - 添加详细注释
     - 定期清理旧版本
     - 保持版本完整性
+
+22. 动作组合
+    - 合理设置过渡帧数
+    - 注意动作连接处的平滑性
+    - 验证镜像动作的对称性
+    - 调整合适的时序缩放比例
+
+23. 动作验证
+    - 设置合理的限位范围
+    - 定期验证动作序列
+    - 及时处理验证问题
+    - 记录验证结果
