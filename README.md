@@ -207,6 +207,69 @@ action_groups:
 client.execute_action_group("custom_action")
 ```
 
+### 3. 使用姿态解算
+
+1. 初始化传感器和解算器：
+```python
+from robot.sensors.imu import IMUSensor
+from robot.core.attitude_solver import AttitudeSolver
+
+imu = IMUSensor()
+solver = AttitudeSolver()
+```
+
+2. 实时更新姿态：
+```python
+def update_attitude():
+    data = imu.read()
+    solver.update(data['accel'], data['gyro'])
+    attitude = solver.get_attitude()
+    return attitude
+```
+
+### 4. 实现平衡控制
+
+1. 创建控制器：
+```python
+from robot.control.balance_controller import BalanceController
+
+controller = BalanceController()
+controller.set_target(0.0)  # 设置目标角度
+```
+
+2. 实现控制循环：
+```python
+def balance_loop():
+    while True:
+        current_angle = update_attitude()[0]  # 获取当前俯仰角
+        output = controller.update(current_angle)
+        apply_motor_control(output)  # 应用到电机
+        time.sleep(0.01)
+```
+
+### 5. 使用动作编辑器
+
+1. 创建预览回调：
+```python
+def preview_frame(frame):
+    """处理单帧预览"""
+    for servo_id, angle in frame.items():
+        servo_manager.set_angle(servo_id, angle)
+
+def preview_sequence(sequence, speed):
+    """处理序列预览"""
+    for frame in sequence:
+        preview_frame(frame)
+        time.sleep(0.5 / speed)
+```
+
+2. 启动编辑器：
+```python
+editor = ActionSequenceEditor(servo_ids)
+editor.set_preview_callbacks(preview_frame, preview_sequence)
+editor.run()
+```
+
 ## API 参考
 
 ### RPC 接口
@@ -299,6 +362,24 @@ robot/
    - 定期备份配置文件
    - 监控系统日志
    - 及时更新软件依赖
+
+4. 姿态控制
+   - 定期校准 IMU 传感器
+   - 合理设置滤波参数
+   - 注意采样频率
+   - 考虑环境振动影响
+
+5. 平衡控制
+   - 根据实际负载调整 PID 参数
+   - 避免积分饱和
+   - 添加输出限幅
+   - 实现平滑控制过渡
+
+6. 动作编辑
+   - 使用预览功能验证动作
+   - 合理设置动作速度
+   - 注意舵机负载
+   - 保存重要动作序列
 
 ## 版本历史
 
@@ -436,60 +517,390 @@ detected = client.get_sensor_data('infrared1')    # 返回布尔值
 
 ## 高级功能
 
-### 1. 并行动作执行
+### 1. 姿态解算
 
-系统支持多个动作组的并行执行：
+系统提供基于 IMU 的姿态解算功能：
 
 ```python
-# 启动多个动作组
-client.execute_action_group('wave', parallel=True)
-client.execute_action_group('dance', parallel=True)
+from robot.core.attitude_solver import AttitudeSolver
 
-# 停止特定动作组
-client.stop_action_group('wave')
+# 创建姿态解算器
+solver = AttitudeSolver()
 
-# 停止所有动作组
-client.stop_all_groups()
+# 更新姿态数据
+accel_data = imu.read()['accel']
+gyro_data = imu.read()['gyro']
+solver.update(accel_data, gyro_data)
+
+# 获取姿态角
+pitch, roll, yaw = solver.get_attitude()
 ```
 
-### 2. 动作组录制和保存
+特点：
+- 基于卡尔曼滤波的姿态融合
+- 实时姿态角计算
+- 自动处理陀螺仪漂移
+- 支持欧拉角输出
 
-动作组可以通过实时录制创建：
+### 2. 平衡控制
 
-1. 文件存储格式 (YAML):
+提供 PID 平衡控制器：
+
+```python
+from robot.control.balance_controller import BalanceController
+
+# 创建平衡控制器
+controller = BalanceController()
+
+# 设置目标角度
+controller.set_target(0.0)
+
+# 设置 PID 参数
+controller.set_pid(kp=20.0, ki=0.1, kd=0.4)
+
+# 更新控制输出
+output = controller.update(current_angle)
+```
+
+特点：
+- 可调节的 PID 参数
+- 实时控制输出
+- 自动积分项重置
+- 支持日志记录
+
+### 3. 动作序列编辑器增强
+
+动作序列编辑器新增预览功能：
+
+```python
+from robot.actions.sequence_editor import ActionSequenceEditor
+
+# 创建编辑器
+editor = ActionSequenceEditor(servo_ids=['servo1', 'servo2'])
+
+# 设置预览回调
+def preview_frame(frame):
+    # 处理单帧预览
+    pass
+
+def preview_sequence(sequence, speed):
+    # 处理序列预览
+    pass
+
+editor.set_preview_callbacks(
+    frame_callback=preview_frame,
+    sequence_callback=preview_sequence
+)
+
+# 运行编辑器
+editor.run()
+```
+
+新增功能：
+- 实时动作预览
+- 可调节预览速度
+- 支持单帧预览
+- 支持序列播放
+
+### 配置示例
+
+1. IMU 传感器配置：
 ```yaml
-my_action:
-  - servo_id: servo1
-    angle: 45
-    delay: 0.5
-  - servo_id: servo1
-    angle: 90
-    delay: 1.0
+sensors:
+  imu1:
+    type: imu
+    bus: 1
+    address: 0x68
 ```
 
-2. 保存位置：
-- 动作组文件保存在 `actions/` 目录
-- 每个动作组独立保存为 YAML 文件
-- 文件名格式：`<action_name>.yaml`
-
-### 3. 动作组管理
-
-- 支持动态加载和更新动作组
-- 提供动作组的启动、停止和状态查询
-- 支持多个动作组的并行控制
-- 提供优雅的停止机制
+2. 平衡控制参数：
+```yaml
+balance_control:
+  pid:
+    kp: 20.0
+    ki: 0.1
+    kd: 0.4
+  target_angle: 0.0
+```
 
 ## 最佳实践
 
-4. 动作组开发
-   - 使用录制功能创建基础动作
-   - 手动优化录制的延时参数
-   - 合理使用并行执行功能
-   - 注意动作组之间的冲突处理
+7. 姿态控制
+   - 定期校准 IMU 传感器
+   - 合理设置滤波参数
+   - 注意采样频率
+   - 考虑环境振动影响
 
-5. 传感器使用
-   - 合理设置采样频率
-   - 注意传感器的工作范围
-   - 做好数据校准和滤波
-   - 考虑环境因素的影响
+8. 平衡控制
+   - 根据实际负载调整 PID 参数
+   - 避免积分饱和
+   - 添加输出限幅
+   - 实现平滑控制过渡
+
+9. 动作编辑
+   - 使用预览功能验证动作
+   - 合理设置动作速度
+   - 注意舵机负载
+   - 保存重要动作序列
+
+## 版本历史
+
+- v1.0.0 (2024-03-xx)
+  - 初始版本发布
+  - 基本功能实现
+  - RPC 接口支持
+  - 日志系统集成
+
+## 许可证
+
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+
+## 贡献指南
+
+1. Fork 项目
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 创建 Pull Request
+
+## 联系方式
+
+- 项目维护者: [维护者邮箱]
+- 项目主页: [项目 GitHub 地址]
+
+## 功能特点
+
+- **动作组管理**
+  - 支持动作组的实时录制和回放
+  - 动作组的并行执行
+  - 动作组的保存和加载
+  - 支持动作组的实时停止
+
+## API 参考
+
+### RPC 接口
+
+1. 基础控制
+```python
+# 设置舵机角度
+set_servo_angle(servo_id: str, angle: float) -> bool
+
+# 读取传感器数据
+get_sensor_data(sensor_id: str) -> Any
 ```
+
+2. 动作组控制
+```python
+# 执行动作组（支持并行执行）
+execute_action_group(group_name: str, parallel: bool = False) -> bool
+
+# 停止指定动作组
+stop_action_group(group_name: str) -> bool
+
+# 停止所有动作组
+stop_all_groups() -> bool
+```
+
+3. 动作录制
+```python
+# 开始录制动作
+start_recording() -> bool
+
+# 停止录制并获取动作数据
+stop_recording() -> List[Dict]
+
+# 保存录制的动作组
+save_recorded_actions(group_name: str) -> bool
+```
+
+### 动作组录制示例
+
+1. 通过 RPC 客户端录制动作：
+```python
+from xmlrpc.client import ServerProxy
+
+# 连接到RPC服务器
+client = ServerProxy('http://localhost:8000')
+
+# 开始录制
+client.start_recording()
+
+# 执行一系列舵机动作
+client.set_servo_angle('servo1', 45)
+time.sleep(1)
+client.set_servo_angle('servo1', 90)
+time.sleep(1)
+client.set_servo_angle('servo1', 0)
+
+# 停止录制并保存
+actions = client.stop_recording()
+client.save_recorded_actions('my_action')
+```
+
+2. 执行录制的动作组：
+```python
+# 串行执行
+client.execute_action_group('my_action')
+
+# 并行执行（与其他动作组同时运行）
+client.execute_action_group('my_action', parallel=True)
+
+# 停止正在执行的动作组
+client.stop_action_group('my_action')
+```
+
+### 传感器支持
+
+1. 超声波传感器 (HC-SR04)
+```yaml
+sensors:
+  ultrasonic1:
+    type: ultrasonic
+    trigger_pin: 17
+    echo_pin: 27
+```
+
+2. 红外传感器
+```yaml
+sensors:
+  infrared1:
+    type: infrared
+    pin: 22
+```
+
+使用示例：
+```python
+# 读取超声波传感器距离
+distance = client.get_sensor_data('ultrasonic1')  # 返回厘米数
+
+# 读取红外传感器状态
+detected = client.get_sensor_data('infrared1')    # 返回布尔值
+```
+
+## 高级功能
+
+### 1. 姿态解算
+
+系统提供基于 IMU 的姿态解算功能：
+
+```python
+from robot.core.attitude_solver import AttitudeSolver
+
+# 创建姿态解算器
+solver = AttitudeSolver()
+
+# 更新姿态数据
+accel_data = imu.read()['accel']
+gyro_data = imu.read()['gyro']
+solver.update(accel_data, gyro_data)
+
+# 获取姿态角
+pitch, roll, yaw = solver.get_attitude()
+```
+
+特点：
+- 基于卡尔曼滤波的姿态融合
+- 实时姿态角计算
+- 自动处理陀螺仪漂移
+- 支持欧拉角输出
+
+### 2. 平衡控制
+
+提供 PID 平衡控制器：
+
+```python
+from robot.control.balance_controller import BalanceController
+
+# 创建平衡控制器
+controller = BalanceController()
+
+# 设置目标角度
+controller.set_target(0.0)
+
+# 设置 PID 参数
+controller.set_pid(kp=20.0, ki=0.1, kd=0.4)
+
+# 更新控制输出
+output = controller.update(current_angle)
+```
+
+特点：
+- 可调节的 PID 参数
+- 实时控制输出
+- 自动积分项重置
+- 支持日志记录
+
+### 3. 动作序列编辑器增强
+
+动作序列编辑器新增预览功能：
+
+```python
+from robot.actions.sequence_editor import ActionSequenceEditor
+
+# 创建编辑器
+editor = ActionSequenceEditor(servo_ids=['servo1', 'servo2'])
+
+# 设置预览回调
+def preview_frame(frame):
+    # 处理单帧预览
+    pass
+
+def preview_sequence(sequence, speed):
+    # 处理序列预览
+    pass
+
+editor.set_preview_callbacks(
+    frame_callback=preview_frame,
+    sequence_callback=preview_sequence
+)
+
+# 运行编辑器
+editor.run()
+```
+
+新增功能：
+- 实时动作预览
+- 可调节预览速度
+- 支持单帧预览
+- 支持序列播放
+
+### 配置示例
+
+1. IMU 传感器配置：
+```yaml
+sensors:
+  imu1:
+    type: imu
+    bus: 1
+    address: 0x68
+```
+
+2. 平衡控制参数：
+```yaml
+balance_control:
+  pid:
+    kp: 20.0
+    ki: 0.1
+    kd: 0.4
+  target_angle: 0.0
+```
+
+## 最佳实践
+
+7. 姿态控制
+   - 定期校准 IMU 传感器
+   - 合理设置滤波参数
+   - 注意采样频率
+   - 考虑环境振动影响
+
+8. 平衡控制
+   - 根据实际负载调整 PID 参数
+   - 避免积分饱和
+   - 添加输出限幅
+   - 实现平滑控制过渡
+
+9. 动作编辑
+   - 使用预览功能验证动作
+   - 合理设置动作速度
+   - 注意舵机负载
+   - 保存重要动作序列
