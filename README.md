@@ -2,6 +2,186 @@
 
 一个基于树莓派的模块化舵机机器人控制系统，提供灵活的舵机控制、传感器管理和动作组编程功能。该系统采用 Python 开发，支持远程控制和实时监控。
 
+## 目录
+
+- [功能特点](#功能特点)
+- [系统架构](#系统架构)
+- [快速开始](#快速开始)
+- [高级功能](#高级功能)
+- [开发指南](#开发指南)
+- [API参考](#api参考)
+- [最佳实践](#最佳实践)
+- [故障排除](#故障排除)
+
+## 功能特点
+
+- **核心功能**
+  - 模块化设计，易于扩展
+  - 统一的状态管理
+  - 完整的日志系统
+  - 远程控制接口
+
+- **动作控制**
+  - 动作组的实时录制和回放
+  - 动作序列的平滑插值
+  - 动作轨迹优化
+  - 并行动作执行
+
+- **传感器支持**
+  - 多种传感器集成
+  - 实时数据过滤
+  - 姿态解算支持
+  - 可扩展的传感器架构
+
+## 系统架构
+
+### 核心模块
+
+1. **状态管理器 (State Manager)**
+   - 集中管理机器人状态
+   - 线程安全的状态访问
+   - 实时状态监控
+   ```python
+   from robot.core.state_manager import RobotStateManager
+   
+   # 创建状态管理器
+   state_manager = RobotStateManager()
+   
+   # 更新状态
+   state_manager.update_state('servos', 'servo1', {'angle': 90})
+   
+   # 获取状态
+   servo_state = state_manager.get_state('servos', 'servo1')
+   ```
+
+2. **动作处理**
+   - 动作序列插值
+   ```python
+   from robot.actions.interpolator import ActionInterpolator
+   
+   interpolator = ActionInterpolator()
+   smooth_sequence = interpolator.interpolate(keyframes, num_points=10)
+   ```
+   
+   - 动作优化
+   ```python
+   from robot.actions.optimizer import ActionOptimizer
+   
+   optimizer = ActionOptimizer()
+   optimized_sequence = optimizer.optimize_timing(sequence, max_speed=300.0)
+   reduced_jerk = optimizer.reduce_jerk(sequence, smoothing_factor=0.5)
+   ```
+
+3. **传感器处理**
+   - 数据过滤器
+   ```python
+   from robot.sensors.filter import SensorFilter, KalmanFilter
+   
+   # 中值滤波
+   filter = SensorFilter(window_size=10)
+   filtered_value = filter.update(raw_value)
+   
+   # 卡尔曼滤波
+   kalman = KalmanFilter()
+   estimated_value = kalman.update(measurement)
+   ```
+
+## 高级功能
+
+### 1. 动作序列优化
+
+系统提供多种动作优化功能：
+
+1. 时序优化
+```python
+# 根据最大速度限制优化动作时序
+optimized = optimizer.optimize_timing(sequence, max_speed=300.0)
+```
+
+2. 抖动减少
+```python
+# 减少动作轨迹的抖动
+smoothed = optimizer.reduce_jerk(sequence, smoothing_factor=0.5)
+```
+
+3. 轨迹平滑
+```python
+# 对动作序列进行平滑插值
+interpolated = interpolator.interpolate(keyframes, num_points=10)
+smoothed = interpolator.smooth_trajectory(frames, window_size=3)
+```
+
+### 2. 传感器数据处理
+
+提供多种数据过滤方案：
+
+1. 中值滤波
+```python
+filter = SensorFilter(window_size=10)
+filtered = filter.update(raw_data)
+```
+
+2. 卡尔曼滤波
+```python
+kalman = KalmanFilter(process_variance=1e-4, measurement_variance=1e-2)
+estimated = kalman.update(measurement)
+```
+
+### 3. 状态监控
+
+实时监控机器人状态：
+
+```python
+# 获取特定类别的状态
+servo_states = state_manager.get_state('servos')
+sensor_data = state_manager.get_state('sensors')
+
+# 获取完整状态
+full_state = state_manager.get_full_state()
+```
+
+## 配置示例
+
+1. 动作优化配置：
+```yaml
+action_optimization:
+  max_speed: 300.0          # 最大角速度(度/秒)
+  smoothing_factor: 0.5     # 平滑因子
+  interpolation_points: 10  # 插值点数
+```
+
+2. 传感器过滤配置：
+```yaml
+sensor_filters:
+  ultrasonic1:
+    type: median
+    window_size: 10
+  gyro1:
+    type: kalman
+    process_variance: 1e-4
+    measurement_variance: 1e-2
+```
+
+## 最佳实践
+
+10. 动作优化
+    - 根据实际需求调整最大速度
+    - 合理设置平滑因子
+    - 注意动作连续性
+    - 避免过度平滑
+
+11. 数据过滤
+    - 选择合适的滤波算法
+    - 调整滤波参数
+    - 监控滤波效果
+    - 及时重置滤波器
+
+12. 状态管理
+    - 及时更新状态
+    - 避免频繁查询
+    - 合理使用状态缓存
+    - 注意线程安全
+
 ## 系统特点
 
 - **模块化设计**：核心功能模块化，便于扩展和维护
@@ -376,268 +556,6 @@ robot/
    - 实现平滑控制过渡
 
 6. 动作编辑
-   - 使用预览功能验证动作
-   - 合理设置动作速度
-   - 注意舵机负载
-   - 保存重要动作序列
-
-## 版本历史
-
-- v1.0.0 (2024-03-xx)
-  - 初始版本发布
-  - 基本功能实现
-  - RPC 接口支持
-  - 日志系统集成
-
-## 许可证
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
-
-## 贡献指南
-
-1. Fork 项目
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 创建 Pull Request
-
-## 联系方式
-
-- 项目维护者: [维护者邮箱]
-- 项目主页: [项目 GitHub 地址]
-
-## 功能特点
-
-- **动作组管理**
-  - 支持动作组的实时录制和回放
-  - 动作组的并行执行
-  - 动作组的保存和加载
-  - 支持动作组的实时停止
-
-## API 参考
-
-### RPC 接口
-
-1. 基础控制
-```python
-# 设置舵机角度
-set_servo_angle(servo_id: str, angle: float) -> bool
-
-# 读取传感器数据
-get_sensor_data(sensor_id: str) -> Any
-```
-
-2. 动作组控制
-```python
-# 执行动作组（支持并行执行）
-execute_action_group(group_name: str, parallel: bool = False) -> bool
-
-# 停止指定动作组
-stop_action_group(group_name: str) -> bool
-
-# 停止所有动作组
-stop_all_groups() -> bool
-```
-
-3. 动作录制
-```python
-# 开始录制动作
-start_recording() -> bool
-
-# 停止录制并获取动作数据
-stop_recording() -> List[Dict]
-
-# 保存录制的动作组
-save_recorded_actions(group_name: str) -> bool
-```
-
-### 动作组录制示例
-
-1. 通过 RPC 客户端录制动作：
-```python
-from xmlrpc.client import ServerProxy
-
-# 连接到RPC服务器
-client = ServerProxy('http://localhost:8000')
-
-# 开始录制
-client.start_recording()
-
-# 执行一系列舵机动作
-client.set_servo_angle('servo1', 45)
-time.sleep(1)
-client.set_servo_angle('servo1', 90)
-time.sleep(1)
-client.set_servo_angle('servo1', 0)
-
-# 停止录制并保存
-actions = client.stop_recording()
-client.save_recorded_actions('my_action')
-```
-
-2. 执行录制的动作组：
-```python
-# 串行执行
-client.execute_action_group('my_action')
-
-# 并行执行（与其他动作组同时运行）
-client.execute_action_group('my_action', parallel=True)
-
-# 停止正在执行的动作组
-client.stop_action_group('my_action')
-```
-
-### 传感器支持
-
-1. 超声波传感器 (HC-SR04)
-```yaml
-sensors:
-  ultrasonic1:
-    type: ultrasonic
-    trigger_pin: 17
-    echo_pin: 27
-```
-
-2. 红外传感器
-```yaml
-sensors:
-  infrared1:
-    type: infrared
-    pin: 22
-```
-
-使用示例：
-```python
-# 读取超声波传感器距离
-distance = client.get_sensor_data('ultrasonic1')  # 返回厘米数
-
-# 读取红外传感器状态
-detected = client.get_sensor_data('infrared1')    # 返回布尔值
-```
-
-## 高级功能
-
-### 1. 姿态解算
-
-系统提供基于 IMU 的姿态解算功能：
-
-```python
-from robot.core.attitude_solver import AttitudeSolver
-
-# 创建姿态解算器
-solver = AttitudeSolver()
-
-# 更新姿态数据
-accel_data = imu.read()['accel']
-gyro_data = imu.read()['gyro']
-solver.update(accel_data, gyro_data)
-
-# 获取姿态角
-pitch, roll, yaw = solver.get_attitude()
-```
-
-特点：
-- 基于卡尔曼滤波的姿态融合
-- 实时姿态角计算
-- 自动处理陀螺仪漂移
-- 支持欧拉角输出
-
-### 2. 平衡控制
-
-提供 PID 平衡控制器：
-
-```python
-from robot.control.balance_controller import BalanceController
-
-# 创建平衡控制器
-controller = BalanceController()
-
-# 设置目标角度
-controller.set_target(0.0)
-
-# 设置 PID 参数
-controller.set_pid(kp=20.0, ki=0.1, kd=0.4)
-
-# 更新控制输出
-output = controller.update(current_angle)
-```
-
-特点：
-- 可调节的 PID 参数
-- 实时控制输出
-- 自动积分项重置
-- 支持日志记录
-
-### 3. 动作序列编辑器增强
-
-动作序列编辑器新增预览功能：
-
-```python
-from robot.actions.sequence_editor import ActionSequenceEditor
-
-# 创建编辑器
-editor = ActionSequenceEditor(servo_ids=['servo1', 'servo2'])
-
-# 设置预览回调
-def preview_frame(frame):
-    # 处理单帧预览
-    pass
-
-def preview_sequence(sequence, speed):
-    # 处理序列预览
-    pass
-
-editor.set_preview_callbacks(
-    frame_callback=preview_frame,
-    sequence_callback=preview_sequence
-)
-
-# 运行编辑器
-editor.run()
-```
-
-新增功能：
-- 实时动作预览
-- 可调节预览速度
-- 支持单帧预览
-- 支持序列播放
-
-### 配置示例
-
-1. IMU 传感器配置：
-```yaml
-sensors:
-  imu1:
-    type: imu
-    bus: 1
-    address: 0x68
-```
-
-2. 平衡控制参数：
-```yaml
-balance_control:
-  pid:
-    kp: 20.0
-    ki: 0.1
-    kd: 0.4
-  target_angle: 0.0
-```
-
-## 最佳实践
-
-7. 姿态控制
-   - 定期校准 IMU 传感器
-   - 合理设置滤波参数
-   - 注意采样频率
-   - 考虑环境振动影响
-
-8. 平衡控制
-   - 根据实际负载调整 PID 参数
-   - 避免积分饱和
-   - 添加输出限幅
-   - 实现平滑控制过渡
-
-9. 动作编辑
    - 使用预览功能验证动作
    - 合理设置动作速度
    - 注意舵机负载
