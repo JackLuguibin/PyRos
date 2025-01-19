@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+        }
+        .score-card {
+            display: inline-block;
+            width: 150px;
+            padding: 15px;
+            margin: 10px;
+            text-align: center;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .score {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .suggestion {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #e9ecef;
+            border-left: 4px solid #007bff;
+        }
+        .plot {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ title }}</h1>
+        
+        <!-- 总体评分 -->
+        <div class="section">
+            <h2>总体评分</h2>
+            <div class="score-card">
+                <div>总分</div>
+                <div class="score">{{ "%.2f"|format(report.summary.total_score) }}</div>
+            </div>
+            {% for aspect, score in report.summary.detailed_scores.items() %}
+            <div class="score-card">
+                <div>{{ aspect }}</div>
+                <div class="score">{{ "%.2f"|format(score) }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <!-- 改进建议 -->
+        <div class="section">
+            <h2>改进建议</h2>
+            {% for suggestion in report.summary.suggestions %}
+            <div class="suggestion">
+                <h3>{{ suggestion.aspect }} (得分: {{ "%.2f"|format(suggestion.score) }})</h3>
+                <pre>{{ suggestion.message }}</pre>
+            </div>
+            {% endfor %}
+        </div>
+        
+        <!-- 可视化图表 -->
+        <div class="section">
+            <h2>动作分析</h2>
+            
+            <h3>角度轨迹</h3>
+            <div class="plot">
+                {{ plots.angle_trajectories | safe }}
+            </div>
+            
+            <h3>速度分析</h3>
+            <div class="plot">
+                {{ plots.velocity_profiles | safe }}
+            </div>
+            
+            <h3>时序分布</h3>
+            <div class="plot">
+                {{ plots.timing_distribution | safe }}
+            </div>
+            
+            <h3>舵机协调性</h3>
+            <div class="plot">
+                {{ plots.correlation_matrix | safe }}
+            </div>
+        </div>
+        
+        <!-- 详细统计 -->
+        <div class="section">
+            <h2>详细统计</h2>
+            
+            <h3>舵机统计</h3>
+            <table>
+                <tr>
+                    <th>舵机ID</th>
+                    <th>角度范围</th>
+                    <th>平均速度</th>
+                    <th>最大速度</th>
+                    <th>方向变化次数</th>
+                </tr>
+                {% for servo_id, stats in report.details.servo_analysis.items() %}
+                <tr>
+                    <td>{{ servo_id }}</td>
+                    <td>{{ stats.angle_range[0] }}° ~ {{ stats.angle_range[1] }}°</td>
+                    <td>{{ "%.2f"|format(stats.avg_velocity) }}°/s</td>
+                    <td>{{ "%.2f"|format(stats.max_velocity) }}°/s</td>
+                    <td>{{ stats.direction_changes }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+            
+            <h3>时序统计</h3>
+            <table>
+                <tr>
+                    <th>总时长</th>
+                    <td>{{ "%.2f"|format(report.details.timing_analysis.total_duration) }}秒</td>
+                </tr>
+                <tr>
+                    <th>最小延时</th>
+                    <td>{{ "%.3f"|format(report.details.timing_analysis.delay_stats.min) }}秒</td>
+                </tr>
+                <tr>
+                    <th>最大延时</th>
+                    <td>{{ "%.3f"|format(report.details.timing_analysis.delay_stats.max) }}秒</td>
+                </tr>
+                <tr>
+                    <th>平均延时</th>
+                    <td>{{ "%.3f"|format(report.details.timing_analysis.delay_stats.mean) }}秒</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</body>
+</html> 

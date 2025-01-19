@@ -493,6 +493,184 @@ class ActionEvaluator:
         
     def _generate_html_report(self, report: Dict, save_path: str):
         """生成HTML格式的报告"""
-        # 这里可以使用模板引擎生成漂亮的HTML报告
-        # 包含图表、数据表格等
-        pass 
+        import jinja2
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+        import os
+        
+        # 创建Jinja2模板环境
+        template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(template_dir)
+        )
+        
+        # 生成图表
+        plots = {
+            'angle_trajectories': self._plot_angle_trajectories(report),
+            'velocity_profiles': self._plot_velocity_profiles(report),
+            'timing_distribution': self._plot_timing_distribution(report),
+            'correlation_matrix': self._plot_correlation_matrix(report)
+        }
+        
+        # 渲染模板
+        template = env.get_template('report_template.html')
+        html_content = template.render(
+            report=report,
+            plots=plots,
+            title="动作评估报告"
+        )
+        
+        # 保存HTML文件
+        with open(save_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+    def _plot_angle_trajectories(self, report: Dict) -> str:
+        """绘制角度轨迹图"""
+        fig = go.Figure()
+        
+        for servo_id, data in report['visualizations']['angle_trajectories'].items():
+            fig.add_trace(go.Scatter(
+                x=data['times'],
+                y=data['angles'],
+                name=f'舵机 {servo_id}',
+                mode='lines',
+                hovertemplate='时间: %{x:.2f}s<br>角度: %{y:.1f}°'
+            ))
+            
+        fig.update_layout(
+            title='舵机角度轨迹',
+            xaxis_title='时间 (秒)',
+            yaxis_title='角度 (度)',
+            showlegend=True,
+            hovermode='x unified'
+        )
+        
+        return fig.to_html(full_html=False, include_plotlyjs='cdn')
+        
+    def _plot_velocity_profiles(self, report: Dict) -> str:
+        """绘制速度曲线图"""
+        servo_stats = report['details']['servo_analysis']
+        
+        # 创建子图
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=('速度分布', '加速度分布')
+        )
+        
+        # 添加速度数据
+        velocities = []
+        accelerations = []
+        labels = []
+        
+        for servo_id, stats in servo_stats.items():
+            velocities.append(stats['avg_velocity'])
+            accelerations.append(stats['avg_acceleration'])
+            labels.append(f'舵机 {servo_id}')
+            
+        # 速度柱状图
+        fig.add_trace(
+            go.Bar(
+                x=labels,
+                y=velocities,
+                name='平均速度',
+                hovertemplate='舵机: %{x}<br>速度: %{y:.1f}°/s'
+            ),
+            row=1, col=1
+        )
+        
+        # 加速度柱状图
+        fig.add_trace(
+            go.Bar(
+                x=labels,
+                y=accelerations,
+                name='平均加速度',
+                hovertemplate='舵机: %{x}<br>加速度: %{y:.1f}°/s²'
+            ),
+            row=2, col=1
+        )
+        
+        fig.update_layout(
+            height=600,
+            showlegend=False,
+            hovermode='x'
+        )
+        
+        return fig.to_html(full_html=False, include_plotlyjs='cdn')
+        
+    def _plot_timing_distribution(self, report: Dict) -> str:
+        """绘制时序分布图"""
+        timing_data = report['visualizations']['timing_distribution']
+        
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=('延时分布', '累计时间')
+        )
+        
+        # 延时分布直方图
+        fig.add_trace(
+            go.Bar(
+                x=timing_data['histogram']['bins'][:-1],
+                y=timing_data['histogram']['counts'],
+                name='延时分布',
+                hovertemplate='延时: %{x:.3f}s<br>次数: %{y}'
+            ),
+            row=1, col=1
+        )
+        
+        # 累计时间曲线
+        fig.add_trace(
+            go.Scatter(
+                x=list(range(len(timing_data['cumulative']))),
+                y=timing_data['cumulative'],
+                name='累计时间',
+                mode='lines',
+                hovertemplate='帧数: %{x}<br>累计时间: %{y:.2f}s'
+            ),
+            row=2, col=1
+        )
+        
+        fig.update_layout(
+            height=600,
+            showlegend=False,
+            hovermode='x'
+        )
+        
+        return fig.to_html(full_html=False, include_plotlyjs='cdn')
+        
+    def _plot_correlation_matrix(self, report: Dict) -> str:
+        """绘制相关性矩阵图"""
+        correlation_data = report['visualizations']['servo_coordination']['correlation_matrix']
+        
+        # 构建相关性矩阵
+        servo_ids = list(correlation_data.keys())
+        matrix = []
+        
+        for servo1 in servo_ids:
+            row = []
+            for servo2 in servo_ids:
+                if servo1 == servo2:
+                    row.append(1.0)
+                else:
+                    row.append(correlation_data[servo1].get(servo2, 0))
+            matrix.append(row)
+            
+        fig = go.Figure(data=go.Heatmap(
+            z=matrix,
+            x=servo_ids,
+            y=servo_ids,
+            colorscale='RdBu',
+            zmid=0,
+            text=[[f'{val:.2f}' for val in row] for row in matrix],
+            texttemplate='%{text}',
+            textfont={'size': 10},
+            hoverongaps=False,
+            hovertemplate='舵机1: %{x}<br>舵机2: %{y}<br>相关性: %{z:.2f}'
+        ))
+        
+        fig.update_layout(
+            title='舵机运动相关性矩阵',
+            width=600,
+            height=600
+        )
+        
+        return fig.to_html(full_html=False, include_plotlyjs='cdn') 
