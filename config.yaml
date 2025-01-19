@@ -1,0 +1,27 @@
+servos:
+  servo1:
+    pin: 18
+    min_pulse: 500
+    max_pulse: 2500
+  servo2:
+    pin: 23
+    min_pulse: 500
+    max_pulse: 2500
+
+sensors:
+  ultrasonic1:
+    type: ultrasonic
+    trigger_pin: 17
+    echo_pin: 27
+  infrared1:
+    type: infrared
+    pin: 22
+
+action_groups:
+  wave:
+    - servo_id: servo1
+      angle: 90
+      delay: 0.5
+    - servo_id: servo1
+      angle: 0
+      delay: 0.5 
