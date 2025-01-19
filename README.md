@@ -218,47 +218,180 @@ differences = calibrator.analyze_difference('wave', frames)
 - 自动角度校正
 - 动作差异分析
 
+### 7. 消息发布/订阅系统
+
+系统提供了类似 ROS 的消息发布/订阅机制：
+
+```python
+from robot.core.message_broker import MessageBroker
+
+# 创建消息代理
+broker = MessageBroker()
+
+# 订阅消息
+def on_sensor_data(data):
+    print(f"收到传感器数据: {data}")
+broker.subscribe("sensor_data", on_sensor_data)
+
+# 发布消息
+broker.publish("sensor_data", {"temperature": 25.5})
+```
+
+特点：
+- 异步消息处理
+- 线程安全设计
+- 支持多订阅者
+- 自动错误处理
+
+### 8. 状态机系统
+
+提供完整的机器人状态管理：
+
+```python
+from robot.core.state_machine import StateMachine, RobotState
+
+# 创建状态机
+sm = StateMachine()
+
+# 添加状态转换
+def on_start():
+    print("机器人启动中...")
+sm.add_transition(RobotState.IDLE, RobotState.INITIALIZING, on_start)
+
+# 添加状态处理器
+def handle_running():
+    print("机器人运行中...")
+sm.add_state_handler(RobotState.RUNNING, handle_running)
+
+# 执行状态转换
+sm.transition_to(RobotState.INITIALIZING)
+```
+
+支持的状态：
+- IDLE: 空闲状态
+- INITIALIZING: 初始化中
+- RUNNING: 运行中
+- PAUSED: 已暂停
+- ERROR: 错误状态
+- CALIBRATING: 校准中
+- RECORDING: 录制中
+- EXECUTING: 执行中
+
+### 9. 坐标变换系统
+
+提供机器人坐标系统管理：
+
+```python
+from robot.core.transform import Transform, TransformTree
+
+# 创建变换树
+transform_tree = TransformTree()
+
+# 添加变换关系
+base_to_arm = Transform(
+    translation=np.array([0, 0, 0.1]),
+    rotation=np.eye(3)
+)
+transform_tree.add_transform("base", "arm", base_to_arm)
+
+# 转换坐标点
+point = np.array([0.1, 0.2, 0.3])
+transformed = transform_tree.transform_point(point, "arm", "base")
+```
+
+特点：
+- 支持多坐标系管理
+- 自动计算变换链
+- 提供逆变换计算
+- 齐次变换矩阵支持
+
+### 10. 任务规划系统
+
+提供任务规划和执行管理：
+
+```python
+from robot.planning.task_planner import TaskPlanner, Task
+
+# 创建任务规划器
+planner = TaskPlanner()
+
+# 定义任务
+def grab_object():
+    # 抓取物体的具体实现
+    pass
+
+task = Task(
+    name="grab",
+    action=grab_object,
+    prerequisites=["move_to_position"],
+    timeout=10.0
+)
+
+# 添加任务
+planner.add_task(task)
+
+# 执行任务
+planner.execute_task("grab")
+
+# 监控任务状态
+status = planner.get_task_status("grab")
+```
+
+任务状态：
+- PENDING: 等待执行
+- RUNNING: 执行中
+- COMPLETED: 已完成
+- FAILED: 执行失败
+- CANCELLED: 已取消
+
 ## 配置示例
 
-1. 动作优化配置：
+1. 消息系统配置：
 ```yaml
-action_optimization:
-  max_speed: 300.0          # 最大角速度(度/秒)
-  smoothing_factor: 0.5     # 平滑因子
-  interpolation_points: 10  # 插值点数
+message_broker:
+  max_queue_size: 1000
+  worker_threads: 2
+  timeout: 1.0
 ```
 
-2. 传感器过滤配置：
+2. 状态机配置：
 ```yaml
-sensor_filters:
-  ultrasonic1:
-    type: median
-    window_size: 10
-  gyro1:
-    type: kalman
-    process_variance: 1e-4
-    measurement_variance: 1e-2
+state_machine:
+  initial_state: "idle"
+  allowed_transitions:
+    idle:
+      - initializing
+      - calibrating
+    initializing:
+      - running
+      - error
+    running:
+      - paused
+      - executing
+      - error
 ```
 
-3. 人脸检测配置：
+3. 坐标系统配置：
 ```yaml
-vision:
-  face_detector:
-    cascade_file: 'haarcascade_frontalface_default.xml'
-    scale_factor: 1.1
-    min_neighbors: 5
-    min_size: [30, 30]
+transform_tree:
+  base_frame: "world"
+  frames:
+    base:
+      parent: "world"
+      translation: [0, 0, 0]
+      rotation: [0, 0, 0]
+    arm:
+      parent: "base"
+      translation: [0, 0, 0.1]
+      rotation: [0, 0, 0]
 ```
 
-4. 动作校准配置：
+4. 任务系统配置：
 ```yaml
-action_calibration:
-  max_angle_diff: 5.0
-  reference_actions:
-    wave:
-      file: 'actions/wave_reference.yaml'
-    dance:
-      file: 'actions/dance_reference.yaml'
+task_planner:
+  max_concurrent_tasks: 5
+  default_timeout: 30.0
+  retry_count: 3
 ```
 
 ## 最佳实践
@@ -314,6 +447,24 @@ action_calibration:
    - 注意资源竞争
    - 实现优雅停止
    - 处理执行异常
+
+10. 消息处理
+    - 避免长时间阻塞
+    - 合理设置队列大小
+    - 实现消息过滤
+    - 处理超时情况
+
+11. 状态管理
+    - 定义清晰的状态转换
+    - 实现状态恢复机制
+    - 记录状态变化历史
+    - 处理异常状态
+
+12. 任务规划
+    - 合理设置任务依赖
+    - 实现任务超时处理
+    - 提供任务取消机制
+    - 记录任务执行日志
 
 ## 系统特点
 
@@ -582,6 +733,44 @@ for servo_id, diff in differences.items():
     print(f"舵机 {servo_id} 平均偏差: {diff:.2f}度")
 ```
 
+### 6. 使用消息系统
+
+1. 创建自定义消息处理器：
+```python
+def handle_sensor_data(data):
+    if data["temperature"] > 30:
+        broker.publish("alarm", "温度过高")
+
+broker.subscribe("sensor_data", handle_sensor_data)
+```
+
+2. 实现消息过滤：
+```python
+def temperature_filter(data):
+    return "temperature" in data and data["temperature"] > 0
+
+broker.subscribe("sensor_data", handle_sensor_data, filter=temperature_filter)
+```
+
+### 7. 状态机应用
+
+1. 定义状态转换逻辑：
+```python
+def can_transition(from_state, to_state):
+    # 实现状态转换验证逻辑
+    return True
+
+sm.add_transition_validator(can_transition)
+```
+
+2. 状态监控：
+```python
+def on_state_changed(old_state, new_state):
+    logger.info(f"状态变更: {old_state} -> {new_state}")
+
+sm.add_state_change_listener(on_state_changed)
+```
+
 ## API 参考
 
 ### RPC 接口
@@ -710,6 +899,24 @@ robot/
    - 注意资源竞争
    - 实现优雅停止
    - 处理执行异常
+
+10. 消息处理
+    - 避免长时间阻塞
+    - 合理设置队列大小
+    - 实现消息过滤
+    - 处理超时情况
+
+11. 状态管理
+    - 定义清晰的状态转换
+    - 实现状态恢复机制
+    - 记录状态变化历史
+    - 处理异常状态
+
+12. 任务规划
+    - 合理设置任务依赖
+    - 实现任务超时处理
+    - 提供任务取消机制
+    - 记录任务执行日志
 
 ## 版本历史
 
@@ -1002,6 +1209,132 @@ differences = calibrator.analyze_difference('wave', frames)
 - 自动角度校正
 - 动作差异分析
 
+### 7. 消息发布/订阅系统
+
+系统提供了类似 ROS 的消息发布/订阅机制：
+
+```python
+from robot.core.message_broker import MessageBroker
+
+# 创建消息代理
+broker = MessageBroker()
+
+# 订阅消息
+def on_sensor_data(data):
+    print(f"收到传感器数据: {data}")
+broker.subscribe("sensor_data", on_sensor_data)
+
+# 发布消息
+broker.publish("sensor_data", {"temperature": 25.5})
+```
+
+特点：
+- 异步消息处理
+- 线程安全设计
+- 支持多订阅者
+- 自动错误处理
+
+### 8. 状态机系统
+
+提供完整的机器人状态管理：
+
+```python
+from robot.core.state_machine import StateMachine, RobotState
+
+# 创建状态机
+sm = StateMachine()
+
+# 添加状态转换
+def on_start():
+    print("机器人启动中...")
+sm.add_transition(RobotState.IDLE, RobotState.INITIALIZING, on_start)
+
+# 添加状态处理器
+def handle_running():
+    print("机器人运行中...")
+sm.add_state_handler(RobotState.RUNNING, handle_running)
+
+# 执行状态转换
+sm.transition_to(RobotState.INITIALIZING)
+```
+
+支持的状态：
+- IDLE: 空闲状态
+- INITIALIZING: 初始化中
+- RUNNING: 运行中
+- PAUSED: 已暂停
+- ERROR: 错误状态
+- CALIBRATING: 校准中
+- RECORDING: 录制中
+- EXECUTING: 执行中
+
+### 9. 坐标变换系统
+
+提供机器人坐标系统管理：
+
+```python
+from robot.core.transform import Transform, TransformTree
+
+# 创建变换树
+transform_tree = TransformTree()
+
+# 添加变换关系
+base_to_arm = Transform(
+    translation=np.array([0, 0, 0.1]),
+    rotation=np.eye(3)
+)
+transform_tree.add_transform("base", "arm", base_to_arm)
+
+# 转换坐标点
+point = np.array([0.1, 0.2, 0.3])
+transformed = transform_tree.transform_point(point, "arm", "base")
+```
+
+特点：
+- 支持多坐标系管理
+- 自动计算变换链
+- 提供逆变换计算
+- 齐次变换矩阵支持
+
+### 10. 任务规划系统
+
+提供任务规划和执行管理：
+
+```python
+from robot.planning.task_planner import TaskPlanner, Task
+
+# 创建任务规划器
+planner = TaskPlanner()
+
+# 定义任务
+def grab_object():
+    # 抓取物体的具体实现
+    pass
+
+task = Task(
+    name="grab",
+    action=grab_object,
+    prerequisites=["move_to_position"],
+    timeout=10.0
+)
+
+# 添加任务
+planner.add_task(task)
+
+# 执行任务
+planner.execute_task("grab")
+
+# 监控任务状态
+status = planner.get_task_status("grab")
+```
+
+任务状态：
+- PENDING: 等待执行
+- RUNNING: 执行中
+- COMPLETED: 已完成
+- FAILED: 执行失败
+- CANCELLED: 已取消
+
 ## 最佳实践
 
 13. 视觉处理
@@ -1021,3 +1354,21 @@ differences = calibrator.analyze_difference('wave', frames)
     - 注意资源竞争
     - 实现优雅停止
     - 处理执行异常
+
+16. 消息处理
+    - 避免长时间阻塞
+    - 合理设置队列大小
+    - 实现消息过滤
+    - 处理超时情况
+
+17. 状态管理
+    - 定义清晰的状态转换
+    - 实现状态恢复机制
+    - 记录状态变化历史
+    - 处理异常状态
+
+18. 任务规划
+    - 合理设置任务依赖
+    - 实现任务超时处理
+    - 提供任务取消机制
+    - 记录任务执行日志
