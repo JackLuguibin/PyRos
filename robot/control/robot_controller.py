@@ -2,6 +2,7 @@ from typing import Dict, Optional
 import logging
 from ..kinematics.motion_planner import MotionPlanner
 from ..core.message_broker import MessageBroker
+from ..dynamics.dynamics_controller import DynamicsController
 
 class RobotController:
     """机器人控制器"""
@@ -15,6 +16,9 @@ class RobotController:
         
         # 消息代理
         self.message_broker = MessageBroker(config.get('message_broker', {}))
+        
+        # 创建动力学控制器
+        self.dynamics_controller = DynamicsController(config.get('dynamics', {}))
         
         # 注册消息处理器
         self.message_broker.register_handler(
@@ -98,4 +102,22 @@ class RobotController:
             
         except Exception as e:
             self.logger.error(f"获取关节状态失败: {str(e)}")
-            return {} 
+            return {}
+
+    def execute_motion(self, target_pose: Transform):
+        """执行运动控制"""
+        try:
+            # 获取当前状态
+            current_joints = self._get_current_joints()
+            
+            # 计算力矩命令
+            tau = self.dynamics_controller.compute_control(
+                current_joints,
+                target_pose
+            )
+            
+            # 发送执行命令
+            self._send_torque_command(tau)
+            
+        except Exception as e:
+            self.logger.error(f"运动执行失败: {str(e)}") 

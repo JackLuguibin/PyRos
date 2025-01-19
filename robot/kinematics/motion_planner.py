@@ -3,6 +3,7 @@ import numpy as np
 import logging
 from .kinematics import RobotKinematics, Transform, JointState
 from ..core.message_broker import MessageBroker
+from .dynamics import RobotDynamics
 
 class MotionPlanner:
     """运动规划器"""
@@ -22,6 +23,9 @@ class MotionPlanner:
         self.max_acceleration = config.get('max_acceleration', 2.0)  # rad/s^2
         self.planning_freq = config.get('planning_freq', 100)  # Hz
         self.dt = 1.0 / self.planning_freq
+        
+        # 动力学模块
+        self.dynamics = RobotDynamics(config.get('dynamics', {}))
         
     def plan_joint_motion(self, target_joints: Dict[str, float],
                          current_joints: Dict[str, JointState],
@@ -258,3 +262,32 @@ class MotionPlanner:
             [2*x*y+2*w*z,    1-2*x*x-2*z*z,  2*y*z-2*w*x],
             [2*x*z-2*w*y,    2*y*z+2*w*x,    1-2*x*x-2*y*y]
         ])
+
+    def plan_trajectory(self, start_state: Dict[str, JointState],
+                       target_state: Dict[str, JointState]) -> List[Dict[str, float]]:
+        """规划轨迹"""
+        try:
+            trajectory = []
+            current_state = start_state.copy()
+            
+            while not self._reached_target(current_state, target_state):
+                # 计算动力学约束
+                max_velocity = self._compute_max_velocity(current_state)
+                max_acceleration = self._compute_max_acceleration(current_state)
+                
+                # 生成轨迹点
+                next_state = self._generate_trajectory_point(
+                    current_state,
+                    target_state,
+                    max_velocity,
+                    max_acceleration
+                )
+                
+                trajectory.append(next_state)
+                current_state = next_state
+                
+            return trajectory
+            
+        except Exception as e:
+            self.logger.error(f"轨迹规划失败: {str(e)}")
+            return []
