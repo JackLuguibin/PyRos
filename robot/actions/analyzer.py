@@ -171,4 +171,125 @@ class ActionAnalyzer:
                 'center': (ranges['max'] + ranges['min']) / 2
             }
             for servo_id, ranges in servo_ranges.items()
+        }
+        
+    def analyze_patterns(self, frames: List[Dict]) -> Dict:
+        """分析动作模式
+        
+        Returns:
+            动作模式分析结果
+        """
+        patterns = {
+            'repetitive': self._find_repetitive_patterns(frames),
+            'synchronized': self._analyze_synchronization(frames),
+            'sequential': self._analyze_sequence_patterns(frames)
+        }
+        return patterns
+        
+    def _find_repetitive_patterns(self, frames: List[Dict]) -> List[Dict]:
+        """查找重复动作模式"""
+        patterns = []
+        min_pattern_length = 3
+        max_pattern_length = len(frames) // 2
+        
+        for length in range(min_pattern_length, max_pattern_length + 1):
+            for start in range(len(frames) - length * 2):
+                pattern = frames[start:start + length]
+                next_segment = frames[start + length:start + length * 2]
+                
+                if self._is_similar_sequence(pattern, next_segment):
+                    patterns.append({
+                        'start_index': start,
+                        'length': length,
+                        'repetitions': self._count_repetitions(frames, pattern, start)
+                    })
+                    
+        return patterns
+        
+    def _is_similar_sequence(self, seq1: List[Dict],
+                            seq2: List[Dict],
+                            threshold: float = 5.0) -> bool:
+        """判断两个序列是否相似"""
+        if len(seq1) != len(seq2):
+            return False
+            
+        for f1, f2 in zip(seq1, seq2):
+            for servo_id in f1:
+                if servo_id == 'delay':
+                    continue
+                if servo_id not in f2:
+                    return False
+                if abs(f1[servo_id] - f2[servo_id]) > threshold:
+                    return False
+                    
+        return True
+        
+    def _count_repetitions(self, frames: List[Dict],
+                          pattern: List[Dict],
+                          start: int) -> int:
+        """计算模式重复次数"""
+        count = 0
+        length = len(pattern)
+        pos = start
+        
+        while pos + length <= len(frames):
+            if self._is_similar_sequence(pattern,
+                                       frames[pos:pos + length]):
+                count += 1
+                pos += length
+            else:
+                break
+                
+        return count
+        
+    def _analyze_synchronization(self, frames: List[Dict]) -> Dict:
+        """分析舵机同步性"""
+        sync_info = {}
+        
+        for i in range(1, len(frames)):
+            active_servos = set()
+            for servo_id in frames[i]:
+                if servo_id == 'delay':
+                    continue
+                if servo_id in frames[i-1]:
+                    if abs(frames[i][servo_id] - frames[i-1][servo_id]) > 1.0:
+                        active_servos.add(servo_id)
+                        
+            if len(active_servos) > 1:
+                key = tuple(sorted(active_servos))
+                sync_info[key] = sync_info.get(key, 0) + 1
+                
+        return {
+            'groups': [{
+                'servos': list(group),
+                'count': count
+            } for group, count in sync_info.items()]
+        }
+        
+    def _analyze_sequence_patterns(self, frames: List[Dict]) -> Dict:
+        """分析顺序模式"""
+        sequences = []
+        current_sequence = []
+        
+        for i in range(1, len(frames)):
+            active_servos = []
+            for servo_id in frames[i]:
+                if servo_id == 'delay':
+                    continue
+                if servo_id in frames[i-1]:
+                    if abs(frames[i][servo_id] - frames[i-1][servo_id]) > 1.0:
+                        active_servos.append(servo_id)
+                        
+            if active_servos:
+                if not current_sequence or \
+                   set(active_servos).isdisjoint(current_sequence[-1]):
+                    current_sequence.append(active_servos)
+                else:
+                    if len(current_sequence) > 1:
+                        sequences.append(current_sequence)
+                    current_sequence = [active_servos]
+                    
+        return {
+            'sequences': sequences,
+            'count': len(sequences)
         } 
