@@ -1,112 +1,197 @@
 #!/usr/bin/env python3
+from typing import Dict, Optional
 import argparse
+import logging
+import yaml
 import signal
 import sys
-import os
-from robot.core.manager import RobotManager
-from robot.network.rpc_server import RobotRPCServer
+import time
+from pathlib import Path
 
-class RobotApplication:
-    def __init__(self):
-        self.robot = None
-        self.rpc_server = None
-        self._setup_signal_handlers()
+from robot.model import RobotDynamics
+from robot.servos import ServoManager
+from robot.sensors import SensorManager
+from robot.simulation import RobotSimulator, RobotVisualizer
+from robot.core.message_broker import MessageBroker
+
+class RobotSystem:
+    """机器人系统"""
+    
+    def __init__(self, config_path: str, log_level: str = 'INFO'):
+        """初始化机器人系统
         
-    def _setup_signal_handlers(self):
-        """设置信号处理器"""
+        Args:
+            config_path: 配置文件路径
+            log_level: 日志级别
+        """
+        # 配置日志
+        logging.basicConfig(
+            level=getattr(logging, log_level),
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        self.logger = logging.getLogger('RobotSystem')
+        
+        # 加载配置
+        self.config = self._load_config(config_path)
+        
+        # 创建消息代理
+        self.message_broker = MessageBroker(
+            config=self.config.get('message_broker', {})
+        )
+        
+        # 创建机器人模型
+        self.dynamics = RobotDynamics(
+            config=self.config.get('model', {}),
+            logger=self.logger
+        )
+        
+        # 创建舵机管理器
+        self.servo_manager = ServoManager(
+            config=self.config.get('servos', {}),
+            logger=self.logger
+        )
+        
+        # 创建传感器管理器
+        self.sensor_manager = SensorManager(
+            config=self.config.get('sensors', {}),
+            logger=self.logger
+        )
+        
+        # 创建仿真器
+        self.simulator = RobotSimulator(
+            config=self.config.get('simulation', {}),
+            robot_dynamics=self.dynamics,
+            logger=self.logger
+        )
+        
+        # 创建可视化器
+        if self.config.get('visualization', {}).get('enable', True):
+            self.visualizer = RobotVisualizer(
+                config=self.config.get('visualization', {}),
+                logger=self.logger
+            )
+        else:
+            self.visualizer = None
+            
+        # 注册信号处理
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         
-    def _signal_handler(self, signum, frame):
-        """处理退出信号"""
-        print("\n正在关闭机器人系统...")
-        self.shutdown()
-        sys.exit(0)
+        self.running = False
         
-    def initialize(self, config_path: str, host: str = "0.0.0.0", port: int = 8000):
-        """初始化机器人系统"""
+    def start(self):
+        """启动系统"""
         try:
-            # 创建并初始化机器人管理器
-            self.robot = RobotManager()
+            self.logger.info("正在启动机器人系统...")
             
-            # 如果指定了配置文件，更新配置路径
-            if config_path:
-                self.robot.config_manager.config_path = config_path
+            # 启动消息代理
+            self.message_broker.start()
+            
+            # 启动舵机管理器
+            self.servo_manager.start()
+            
+            # 启动传感器管理器
+            self.sensor_manager.start()
+            
+            # 启动仿真器
+            self.simulator.start()
+            
+            # 启动可视化器
+            if self.visualizer:
+                self.visualizer.start()
                 
-            # 初始化机器人系统
-            self.robot.initialize()
+            self.running = True
+            self.logger.info("机器人系统已启动")
             
-            # 创建并启动RPC服务器
-            self.rpc_server = RobotRPCServer(self.robot, host, port)
-            self.rpc_server.start()
+            # 主循环
+            while self.running:
+                try:
+                    # 更新机器人状态
+                    joint_states = self.sensor_manager.get_joint_states()
+                    if joint_states:
+                        self.simulator.set_joint_states(joint_states)
+                        
+                    # 更新可视化
+                    if self.visualizer:
+                        link_transforms = {
+                            name: self.simulator.get_link_transform(name)
+                            for name in self.config.get('links', [])
+                        }
+                        self.visualizer.update_robot_state(link_transforms)
+                        
+                    time.sleep(0.01)  # 100Hz更新频率
+                    
+                except Exception as e:
+                    self.logger.error(f"主循环错误: {str(e)}")
+                    
+        except Exception as e:
+            self.logger.error(f"启动系统失败: {str(e)}")
+            self.stop()
             
-            print(f"""
-机器人系统已启动:
-- RPC服务器地址: http://{host}:{port}
-- 配置文件: {os.path.abspath(config_path)}
-- 日志目录: {os.path.abspath('logs')}
-
-按Ctrl+C退出...
-            """)
+    def stop(self):
+        """停止系统"""
+        self.logger.info("正在停止机器人系统...")
+        self.running = False
+        
+        # 停止各个组件
+        if self.visualizer:
+            self.visualizer.stop()
+        self.simulator.stop()
+        self.sensor_manager.stop()
+        self.servo_manager.stop()
+        self.message_broker.stop()
+        
+        self.logger.info("机器人系统已停止")
+        
+    def _load_config(self, config_path: str) -> Dict:
+        """加载配置文件"""
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+            self.logger.info(f"已加载配置文件: {config_path}")
+            return config
             
         except Exception as e:
-            print(f"初始化失败: {e}")
-            self.shutdown()
+            self.logger.error(f"加载配置文件失败: {str(e)}")
             sys.exit(1)
             
-    def shutdown(self):
-        """关闭机器人系统"""
-        if self.rpc_server:
-            self.rpc_server.stop()
-        if self.robot:
-            self.robot.shutdown()
-            
-    def run_forever(self):
-        """保持程序运行"""
-        try:
-            signal.pause()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            self.shutdown()
-
-def parse_arguments():
-    """解析命令行参数"""
-    parser = argparse.ArgumentParser(description='机器人控制系统')
-    
-    parser.add_argument(
-        '-c', '--config',
-        default='config.yaml',
-        help='配置文件路径 (默认: config.yaml)'
-    )
-    
-    parser.add_argument(
-        '--host',
-        default='0.0.0.0',
-        help='RPC服务器主机地址 (默认: 0.0.0.0)'
-    )
-    
-    parser.add_argument(
-        '-p', '--port',
-        type=int,
-        default=8000,
-        help='RPC服务器端口 (默认: 8000)'
-    )
-    
-    return parser.parse_args()
+    def _signal_handler(self, signum, frame):
+        """信号处理"""
+        self.logger.info(f"收到信号: {signum}")
+        self.stop()
+        sys.exit(0)
 
 def main():
+    """主函数"""
     # 解析命令行参数
-    args = parse_arguments()
-    
-    # 创建并运行应用
-    app = RobotApplication()
-    app.initialize(
-        config_path=args.config,
-        host=args.host,
-        port=args.port
+    parser = argparse.ArgumentParser(description='启动机器人系统')
+    parser.add_argument(
+        '-c', '--config',
+        type=str,
+        default='config/robot_config.yaml',
+        help='配置文件路径'
     )
-    app.run_forever()
+    parser.add_argument(
+        '-l', '--log-level',
+        type=str,
+        default='INFO',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        help='日志级别'
+    )
+    args = parser.parse_args()
+    
+    # 检查配置文件
+    config_path = Path(args.config)
+    if not config_path.exists():
+        print(f"错误: 配置文件不存在: {config_path}")
+        sys.exit(1)
+        
+    # 创建并启动系统
+    robot = RobotSystem(
+        config_path=str(config_path),
+        log_level=args.log_level
+    )
+    robot.start()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main() 
