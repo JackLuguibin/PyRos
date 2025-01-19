@@ -243,3 +243,256 @@ class ActionEvaluator:
             })
             
         return suggestions 
+
+    def generate_report(self, frames: List[Dict], 
+                       save_path: Optional[str] = None) -> Dict:
+        """生成详细的评估报告
+        
+        Args:
+            frames: 动作序列
+            save_path: 报告保存路径
+            
+        Returns:
+            评估报告数据
+        """
+        # 基础评分
+        evaluation = self.evaluate_action(frames)
+        
+        # 添加详细分析
+        report = {
+            'summary': evaluation,
+            'details': {
+                'frame_analysis': self._analyze_frames(frames),
+                'servo_analysis': self._analyze_servos(frames),
+                'timing_analysis': self._analyze_timing(frames),
+                'pattern_analysis': self._analyze_patterns(frames)
+            },
+            'visualizations': self._generate_visualizations(frames)
+        }
+        
+        # 保存报告
+        if save_path:
+            self._save_report(report, save_path)
+        
+        return report
+        
+    def _analyze_frames(self, frames: List[Dict]) -> Dict:
+        """分析每一帧的特征"""
+        frame_analysis = []
+        
+        for i, frame in enumerate(frames):
+            analysis = {
+                'frame_index': i,
+                'active_servos': len([k for k in frame.keys() if k != 'delay']),
+                'delay': frame.get('delay', 0.02)
+            }
+            
+            if i > 0:
+                # 计算与前一帧的差异
+                changes = {}
+                for servo_id in frame:
+                    if servo_id == 'delay':
+                        continue
+                    if servo_id in frames[i-1]:
+                        changes[servo_id] = abs(frame[servo_id] - 
+                                             frames[i-1][servo_id])
+                analysis['changes'] = changes
+                analysis['max_change'] = max(changes.values()) if changes else 0
+            
+            frame_analysis.append(analysis)
+        
+        return {
+            'frames': frame_analysis,
+            'statistics': {
+                'total_frames': len(frames),
+                'avg_delay': np.mean([f.get('delay', 0.02) for f in frames]),
+                'max_servo_change': max(f.get('max_change', 0) 
+                                      for f in frame_analysis[1:])
+            }
+        }
+        
+    def _analyze_servos(self, frames: List[Dict]) -> Dict:
+        """分析每个舵机的运动特征"""
+        servo_stats = {}
+        
+        # 获取所有舵机ID
+        servo_ids = set()
+        for frame in frames:
+            servo_ids.update(k for k in frame.keys() if k != 'delay')
+        
+        for servo_id in servo_ids:
+            angles = []
+            velocities = []
+            accelerations = []
+            
+            for i, frame in enumerate(frames):
+                if servo_id in frame:
+                    angles.append(frame[servo_id])
+                    
+                    if i > 0 and servo_id in frames[i-1]:
+                        dt = frames[i-1].get('delay', 0.02)
+                        v = (frame[servo_id] - frames[i-1][servo_id]) / dt
+                        velocities.append(v)
+                        
+                        if i > 1 and servo_id in frames[i-2]:
+                            a = (v - (frames[i-1][servo_id] - 
+                                 frames[i-2][servo_id]) / dt) / dt
+                            accelerations.append(a)
+                        
+            servo_stats[servo_id] = {
+                'angle_range': (min(angles), max(angles)),
+                'total_movement': sum(abs(angles[i] - angles[i-1]) 
+                                    for i in range(1, len(angles))),
+                'avg_velocity': np.mean(np.abs(velocities)) if velocities else 0,
+                'max_velocity': max(np.abs(velocities)) if velocities else 0,
+                'avg_acceleration': np.mean(np.abs(accelerations)) 
+                                  if accelerations else 0,
+                'direction_changes': sum(1 for i in range(1, len(velocities))
+                                       if np.sign(velocities[i]) != 
+                                       np.sign(velocities[i-1]))
+                                       if len(velocities) > 1 else 0
+            }
+        
+        return servo_stats
+        
+    def _analyze_timing(self, frames: List[Dict]) -> Dict:
+        """分析时序特征"""
+        delays = [frame.get('delay', 0.02) for frame in frames]
+        
+        return {
+            'total_duration': sum(delays),
+            'delay_stats': {
+                'min': min(delays),
+                'max': max(delays),
+                'mean': np.mean(delays),
+                'std': np.std(delays)
+            },
+            'timing_distribution': np.histogram(delays, bins=10)[0].tolist(),
+            'timing_patterns': self._find_timing_patterns(delays)
+        }
+        
+    def _analyze_patterns(self, frames: List[Dict]) -> Dict:
+        """分析动作模式"""
+        return {
+            'repetitive_patterns': self._find_repetitive_patterns(frames),
+            'synchronized_movements': self._analyze_synchronization(frames),
+            'sequential_patterns': self._analyze_sequence_patterns(frames)
+        }
+        
+    def _generate_visualizations(self, frames: List[Dict]) -> Dict:
+        """生成可视化数据"""
+        servo_ids = set()
+        for frame in frames:
+            servo_ids.update(k for k in frame.keys() if k != 'delay')
+        
+        visualizations = {
+            'angle_trajectories': {},
+            'velocity_profiles': {},
+            'acceleration_profiles': {},
+            'timing_distribution': self._get_timing_visualization(frames),
+            'servo_coordination': self._get_coordination_visualization(frames)
+        }
+        
+        # 生成每个舵机的轨迹数据
+        for servo_id in servo_ids:
+            angles = []
+            times = []
+            t = 0
+            
+            for frame in frames:
+                if servo_id in frame:
+                    angles.append(frame[servo_id])
+                    times.append(t)
+                t += frame.get('delay', 0.02)
+            
+            visualizations['angle_trajectories'][servo_id] = {
+                'times': times,
+                'angles': angles
+            }
+        
+        return visualizations
+        
+    def _find_timing_patterns(self, delays: List[float]) -> List[Dict]:
+        """查找时序模式"""
+        patterns = []
+        min_pattern_length = 3
+        max_pattern_length = len(delays) // 2
+        
+        for length in range(min_pattern_length, max_pattern_length + 1):
+            for start in range(len(delays) - length * 2):
+                pattern = delays[start:start + length]
+                next_segment = delays[start + length:start + length * 2]
+                
+                if np.allclose(pattern, next_segment, rtol=0.1):
+                    patterns.append({
+                        'start_index': start,
+                        'length': length,
+                        'pattern': pattern
+                    })
+        
+        return patterns
+        
+    def _get_timing_visualization(self, frames: List[Dict]) -> Dict:
+        """生成时序可视化数据"""
+        delays = [frame.get('delay', 0.02) for frame in frames]
+        hist, bins = np.histogram(delays, bins=20)
+        
+        return {
+            'histogram': {
+                'counts': hist.tolist(),
+                'bins': bins.tolist()
+            },
+            'cumulative': np.cumsum(delays).tolist()
+        }
+        
+    def _get_coordination_visualization(self, frames: List[Dict]) -> Dict:
+        """生成舵机协调性可视化数据"""
+        servo_ids = set()
+        for frame in frames:
+            servo_ids.update(k for k in frame.keys() if k != 'delay')
+        
+        coordination = {
+            'correlation_matrix': {},
+            'phase_plots': {}
+        }
+        
+        # 计算舵机间的相关性
+        for servo1 in servo_ids:
+            coordination['correlation_matrix'][servo1] = {}
+            for servo2 in servo_ids:
+                if servo1 != servo2:
+                    angles1 = []
+                    angles2 = []
+                    
+                    for frame in frames:
+                        if servo1 in frame and servo2 in frame:
+                            angles1.append(frame[servo1])
+                            angles2.append(frame[servo2])
+                        
+                    if angles1 and angles2:
+                        correlation = np.corrcoef(angles1, angles2)[0, 1]
+                        coordination['correlation_matrix'][servo1][servo2] = correlation
+        
+        return coordination
+        
+    def _save_report(self, report: Dict, save_path: str):
+        """保存评估报告"""
+        import json
+        import os
+        
+        # 创建报告目录
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        
+        # 保存JSON报告
+        with open(save_path, 'w') as f:
+            json.dump(report, f, indent=2)
+        
+        # 如果需要，生成HTML报告
+        if save_path.endswith('.html'):
+            self._generate_html_report(report, save_path)
+        
+    def _generate_html_report(self, report: Dict, save_path: str):
+        """生成HTML格式的报告"""
+        # 这里可以使用模板引擎生成漂亮的HTML报告
+        # 包含图表、数据表格等
+        pass 
