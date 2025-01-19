@@ -90,4 +90,4 @@ class ActionCalibrator:
         return {
             servo_id: np.mean(diffs)
             for servo_id, diffs in differences.items()
-        } 
+        }
