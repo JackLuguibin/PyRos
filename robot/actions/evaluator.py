@@ -534,18 +534,37 @@ class ActionEvaluator:
                 y=data['angles'],
                 name=f'舵机 {servo_id}',
                 mode='lines',
-                hovertemplate='时间: %{x:.2f}s<br>角度: %{y:.1f}°'
+                hovertemplate='时间: %{x:.2f}s<br>角度: %{y:.1f}°',
+                customdata=[servo_id] * len(data['times']),  # 添加自定义数据
+                hoverlabel={'bgcolor': 'white'},
+                line={'width': 2}
             ))
-            
+        
         fig.update_layout(
             title='舵机角度轨迹',
             xaxis_title='时间 (秒)',
             yaxis_title='角度 (度)',
             showlegend=True,
-            hovermode='x unified'
+            hovermode='x unified',
+            # 添加交互配置
+            dragmode='pan',  # 启用平移
+            modebar_add=['zoom', 'pan', 'reset', 'autorange'],
+            modebar_remove=['lasso', 'select'],
+            # 添加范围滑块
+            xaxis={'rangeslider': {'visible': True}},
         )
         
-        return fig.to_html(full_html=False, include_plotlyjs='cdn')
+        # 添加自定义事件处理
+        fig.update_traces(
+            customdata=True,  # 启用自定义数据
+            hoverlabel_namelength=-1  # 显示完整标签
+        )
+        
+        return fig.to_html(
+            full_html=False,
+            include_plotlyjs='cdn',
+            config={'responsive': True}
+        )
         
     def _plot_velocity_profiles(self, report: Dict) -> str:
         """绘制速度曲线图"""
