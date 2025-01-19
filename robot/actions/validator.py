@@ -163,4 +163,231 @@ class ActionValidator:
                     'issues': frame_issues
                 })
                 
-        return issues 
+        return issues
+        
+    def validate_continuity(self, frames: List[Dict],
+                           max_gap: float = 10.0) -> List[Dict]:
+        """验证动作连续性
+        
+        Args:
+            frames: 动作序列
+            max_gap: 最大允许的角度间隔
+            
+        Returns:
+            连续性问题列表
+        """
+        issues = []
+        
+        for i in range(1, len(frames)):
+            frame_issues = {}
+            
+            for servo_id in frames[i]:
+                if servo_id == 'delay':
+                    continue
+                    
+                if servo_id in frames[i-1]:
+                    gap = abs(frames[i][servo_id] - frames[i-1][servo_id])
+                    if gap > max_gap:
+                        frame_issues[servo_id] = {
+                            'type': 'continuity_gap',
+                            'value': gap,
+                            'limit': max_gap
+                        }
+                        
+            if frame_issues:
+                issues.append({
+                    'frame_index': i,
+                    'issues': frame_issues
+                })
+                
+        return issues
+        
+    def validate_symmetry(self, frames: List[Dict],
+                         servo_pairs: Dict[str, str],
+                         max_diff: float = 5.0) -> List[Dict]:
+        """验证动作对称性
+        
+        Args:
+            frames: 动作序列
+            servo_pairs: 对称舵机对，如 {'left_arm': 'right_arm'}
+            max_diff: 最大允许的不对称差异
+            
+        Returns:
+            对称性问题列表
+        """
+        issues = []
+        
+        for i, frame in enumerate(frames):
+            frame_issues = {}
+            
+            for servo1, servo2 in servo_pairs.items():
+                if servo1 in frame and servo2 in frame:
+                    # 计算对称差异
+                    diff = abs(frame[servo1] - frame[servo2])
+                    if diff > max_diff:
+                        frame_issues[f"{servo1}_{servo2}"] = {
+                            'type': 'symmetry_violation',
+                            'value': diff,
+                            'limit': max_diff
+                        }
+                        
+            if frame_issues:
+                issues.append({
+                    'frame_index': i,
+                    'issues': frame_issues
+                })
+                
+        return issues
+        
+    def validate_energy(self, frames: List[Dict],
+                       max_power: float = 100.0) -> List[Dict]:
+        """验证动作能量消耗
+        
+        Args:
+            frames: 动作序列
+            max_power: 最大允许功率（单位：瓦特）
+            
+        Returns:
+            能量问题列表
+        """
+        issues = []
+        
+        for i in range(1, len(frames)):
+            frame_issues = {}
+            dt = frames[i-1].get('delay', 0.02)
+            
+            total_power = 0
+            for servo_id in frames[i]:
+                if servo_id == 'delay':
+                    continue
+                    
+                if servo_id in frames[i-1]:
+                    # 计算角速度
+                    velocity = abs(frames[i][servo_id] - 
+                                 frames[i-1][servo_id]) / dt
+                    # 简化的功率模型
+                    power = velocity * velocity * 0.1  # 假设系数
+                    total_power += power
+                    
+            if total_power > max_power:
+                frame_issues['total'] = {
+                    'type': 'power_limit',
+                    'value': total_power,
+                    'limit': max_power
+                }
+                
+            if frame_issues:
+                issues.append({
+                    'frame_index': i,
+                    'issues': frame_issues
+                })
+                
+        return issues
+        
+    def suggest_improvements(self, frames: List[Dict]) -> List[Dict]:
+        """提供动作改进建议
+        
+        Returns:
+            改进建议列表
+        """
+        suggestions = []
+        
+        # 检查速度分布
+        velocities = self._analyze_velocities(frames)
+        if velocities['std'] > velocities['mean'] * 0.5:
+            suggestions.append({
+                'type': 'velocity_distribution',
+                'message': '速度分布不均匀，建议平滑加速度',
+                'data': velocities
+            })
+            
+        # 检查能量效率
+        energy = self._analyze_energy(frames)
+        if energy['peaks'] > len(frames) * 0.1:
+            suggestions.append({
+                'type': 'energy_efficiency',
+                'message': '存在能量峰值过多，建议优化动作',
+                'data': energy
+            })
+            
+        # 检查动作复杂度
+        complexity = self._analyze_complexity(frames)
+        if complexity['changes'] > len(frames) * 0.3:
+            suggestions.append({
+                'type': 'motion_complexity',
+                'message': '动作变化过于频繁，建议简化',
+                'data': complexity
+            })
+            
+        return suggestions
+        
+    def _analyze_velocities(self, frames: List[Dict]) -> Dict:
+        """分析速度分布"""
+        velocities = []
+        
+        for i in range(1, len(frames)):
+            dt = frames[i-1].get('delay', 0.02)
+            for servo_id in frames[i]:
+                if servo_id == 'delay':
+                    continue
+                if servo_id in frames[i-1]:
+                    velocity = abs(frames[i][servo_id] - 
+                                 frames[i-1][servo_id]) / dt
+                    velocities.append(velocity)
+                    
+        return {
+            'mean': np.mean(velocities),
+            'std': np.std(velocities),
+            'max': max(velocities),
+            'distribution': np.histogram(velocities)[0].tolist()
+        }
+        
+    def _analyze_energy(self, frames: List[Dict]) -> Dict:
+        """分析能量消耗"""
+        energy_peaks = 0
+        total_energy = 0
+        
+        for i in range(1, len(frames)):
+            dt = frames[i-1].get('delay', 0.02)
+            frame_energy = 0
+            
+            for servo_id in frames[i]:
+                if servo_id == 'delay':
+                    continue
+                if servo_id in frames[i-1]:
+                    velocity = abs(frames[i][servo_id] - 
+                                 frames[i-1][servo_id]) / dt
+                    energy = velocity * velocity * dt
+                    frame_energy += energy
+                    
+            total_energy += frame_energy
+            if frame_energy > total_energy / len(frames) * 2:
+                energy_peaks += 1
+                
+        return {
+            'total': total_energy,
+            'peaks': energy_peaks,
+            'average': total_energy / len(frames)
+        }
+        
+    def _analyze_complexity(self, frames: List[Dict]) -> Dict:
+        """分析动作复杂度"""
+        changes = 0
+        directions = {}
+        
+        for i in range(1, len(frames)):
+            for servo_id in frames[i]:
+                if servo_id == 'delay':
+                    continue
+                if servo_id in frames[i-1]:
+                    curr_dir = np.sign(frames[i][servo_id] - 
+                                     frames[i-1][servo_id])
+                    if servo_id in directions:
+                        if curr_dir != directions[servo_id]:
+                            changes += 1
+                    directions[servo_id] = curr_dir
+                    
+        return {
+            'changes': changes,
+            'change_rate': changes / len(frames)
+        } 
