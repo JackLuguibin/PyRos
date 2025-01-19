@@ -1,61 +1,112 @@
-import time
-from typing import Tuple
+from typing import Dict, Optional, Tuple
+import numpy as np
 import logging
+from .pid_controller import PIDController
 
 class BalanceController:
-    def __init__(self, logger: logging.Logger = None):
-        self.logger = logger
+    def __init__(self, config: Dict, logger: Optional[logging.Logger] = None):
+        """平衡控制器
         
-        # PID参数
-        self.kp = 20.0
-        self.ki = 0.1
-        self.kd = 0.4
+        Args:
+            config: 控制器配置
+            logger: 日志记录器
+        """
+        self.logger = logger or logging.getLogger('BalanceController')
+        self.config = config
         
-        # 控制相关变量
-        self.target_angle = 0.0
-        self.last_error = 0.0
-        self.error_sum = 0.0
-        self.last_time = time.time()
+        # 创建姿态控制器
+        self.roll_controller = PIDController(**config.get('roll', {}))
+        self.pitch_controller = PIDController(**config.get('pitch', {}))
+        self.yaw_controller = PIDController(**config.get('yaw', {}))
         
-    def update(self, current_angle: float) -> float:
+        # 状态变量
+        self.target_angles = {'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0}
+        self.current_angles = {'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0}
+        
+        # 补偿参数
+        self.gravity_comp = config.get('gravity_compensation', 0.0)
+        self.gyro_comp = config.get('gyro_compensation', 0.0)
+        
+    def update(self, imu_data: Dict, dt: float) -> Dict[str, float]:
         """更新平衡控制
         
         Args:
-            current_angle: 当前角度
+            imu_data: IMU数据
+            dt: 时间间隔
             
         Returns:
-            控制输出值
+            控制输出
         """
-        current_time = time.time()
-        dt = current_time - self.last_time
-        self.last_time = current_time
+        # 更新当前姿态
+        self.current_angles = {
+            'roll': imu_data.get('roll', 0.0),
+            'pitch': imu_data.get('pitch', 0.0),
+            'yaw': imu_data.get('yaw', 0.0)
+        }
         
-        # 计算误差
-        error = self.target_angle - current_angle
-        self.error_sum += error * dt
-        error_rate = (error - self.last_error) / dt
+        # 计算各轴控制输出
+        outputs = {
+            'roll': self.roll_controller.compute(
+                self.target_angles['roll'],
+                self.current_angles['roll'],
+                dt
+            ),
+            'pitch': self.pitch_controller.compute(
+                self.target_angles['pitch'],
+                self.current_angles['pitch'],
+                dt
+            ),
+            'yaw': self.yaw_controller.compute(
+                self.target_angles['yaw'],
+                self.current_angles['yaw'],
+                dt
+            )
+        }
         
-        # PID控制
-        output = (self.kp * error + 
-                 self.ki * self.error_sum + 
-                 self.kd * error_rate)
+        # 添加补偿
+        outputs = self._apply_compensation(outputs, imu_data)
         
-        # 更新状态
-        self.last_error = error
+        return outputs
         
-        if self.logger:
-            self.logger.debug(f"平衡控制: 误差={error:.2f}, 输出={output:.2f}")
+    def set_target(self, roll: Optional[float] = None,
+                  pitch: Optional[float] = None,
+                  yaw: Optional[float] = None):
+        """设置目标姿态"""
+        if roll is not None:
+            self.target_angles['roll'] = roll
+        if pitch is not None:
+            self.target_angles['pitch'] = pitch
+        if yaw is not None:
+            self.target_angles['yaw'] = yaw
             
-        return output
+    def _apply_compensation(self, outputs: Dict[str, float],
+                          imu_data: Dict) -> Dict[str, float]:
+        """应用补偿"""
+        # 重力补偿
+        outputs['pitch'] += np.sin(np.radians(self.current_angles['pitch'])) * self.gravity_comp
         
-    def set_target(self, angle: float):
-        """设置目标角度"""
-        self.target_angle = angle
-        self.error_sum = 0.0  # 重置积分项
+        # 陀螺仪补偿
+        if 'gyro' in imu_data:
+            gyro = imu_data['gyro']
+            outputs['roll'] += gyro.get('x', 0.0) * self.gyro_comp
+            outputs['pitch'] += gyro.get('y', 0.0) * self.gyro_comp
+            outputs['yaw'] += gyro.get('z', 0.0) * self.gyro_comp
+            
+        return outputs
         
-    def set_pid(self, kp: float, ki: float, kd: float):
-        """设置PID参数"""
-        self.kp = kp
-        self.ki = ki
-        self.kd = kd
-        self.error_sum = 0.0  # 重置积分项 
+    def reset(self):
+        """重置控制器"""
+        self.roll_controller.reset()
+        self.pitch_controller.reset()
+        self.yaw_controller.reset()
+        self.target_angles = {'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0}
+        
+    def get_state(self) -> Dict:
+        """获取控制器状态"""
+        return {
+            'target_angles': self.target_angles.copy(),
+            'current_angles': self.current_angles.copy(),
+            'roll_stats': self.roll_controller.get_stats(),
+            'pitch_stats': self.pitch_controller.get_stats(),
+            'yaw_stats': self.yaw_controller.get_stats()
+        } 
