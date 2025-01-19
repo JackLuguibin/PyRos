@@ -344,127 +344,131 @@ status = planner.get_task_status("grab")
 - FAILED: 执行失败
 - CANCELLED: 已取消
 
-## 配置示例
+### 7. 动作组优化
 
-1. 消息系统配置：
-```yaml
-message_broker:
-  max_queue_size: 1000
-  worker_threads: 2
-  timeout: 1.0
+系统提供了完整的动作组优化功能：
+
+```python
+from robot.actions.optimizer import ActionOptimizer
+
+# 创建优化器
+optimizer = ActionOptimizer()
+
+# 时序优化
+optimized = optimizer.optimize_timing(
+    frames,
+    min_delay=0.02,
+    max_velocity=300.0
+)
+
+# 轨迹平滑
+smoothed = optimizer.smooth_trajectory(
+    frames,
+    window_size=3
+)
+
+# 减少加加速度
+optimized = optimizer.reduce_jerk(
+    frames,
+    max_accel=200.0
+)
 ```
 
-2. 状态机配置：
-```yaml
-state_machine:
-  initial_state: "idle"
-  allowed_transitions:
-    idle:
-      - initializing
-      - calibrating
-    initializing:
-      - running
-      - error
-    running:
-      - paused
-      - executing
-      - error
+特点：
+- 自动时序优化
+- 高斯加权平滑
+- 加速度限制
+- 抖动控制
+
+### 8. 动作组分析
+
+提供动作分析和诊断工具：
+
+```python
+from robot.actions.analyzer import ActionAnalyzer
+
+analyzer = ActionAnalyzer()
+
+# 分析动作复杂度
+metrics = analyzer.analyze_complexity(frames)
+print(f"帧数: {metrics['frame_count']}")
+print(f"舵机数: {metrics['servo_count']}")
+print(f"总时长: {metrics['total_duration']}")
+
+# 查找关键帧
+critical_points = analyzer.find_critical_points(
+    frames,
+    threshold=10.0
+)
+
+# 检测异常
+anomalies = analyzer.detect_anomalies(
+    frames,
+    velocity_threshold=300.0,
+    accel_threshold=200.0
+)
 ```
 
-3. 坐标系统配置：
-```yaml
-transform_tree:
-  base_frame: "world"
-  frames:
-    base:
-      parent: "world"
-      translation: [0, 0, 0]
-      rotation: [0, 0, 0]
-    arm:
-      parent: "base"
-      translation: [0, 0, 0.1]
-      rotation: [0, 0, 0]
+分析指标：
+- 角度变化统计
+- 时序分析
+- 运动特征
+- 异常检测
+
+### 9. 版本管理
+
+支持动作组和配置的版本管理：
+
+```python
+from robot.actions.action_version import ActionVersionManager
+from robot.config.robot_config import RobotConfig
+
+# 动作组版本管理
+version_manager = ActionVersionManager()
+
+# 保存版本
+version_id = version_manager.save_action_group(
+    name="wave_hand",
+    frames=frames,
+    version_name="v1.0.0",
+    comment="Initial version"
+)
+
+# 加载版本
+action_data = version_manager.load_action_group(version_id)
+
+# 配置版本管理
+config = RobotConfig()
+config.save_version("v1.0.0", "Initial config")
+config.compare_with_version("v0.9.0")
+config.rollback("v0.9.0")
 ```
 
-4. 任务系统配置：
-```yaml
-task_planner:
-  max_concurrent_tasks: 5
-  default_timeout: 30.0
-  retry_count: 3
-```
+版本功能：
+- 版本保存和加载
+- 版本比较
+- 回滚支持
+- 元数据记录
 
 ## 最佳实践
 
-1. 硬件配置
-   - 使用独立的舵机电源供应
-   - 注意 GPIO 引脚的电平要求
-   - 合理布局接线，避免干扰
+19. 动作优化
+    - 合理设置速度限制
+    - 选择合适的平滑窗口
+    - 注意加速度约束
+    - 避免过度平滑
 
-2. 软件开发
-   - 遵循模块化设计原则
-   - 做好异常处理
-   - 及时记录日志
-   - 注意资源的及时释放
+20. 动作分析
+    - 定期检查异常
+    - 关注关键帧
+    - 监控性能指标
+    - 分析优化效果
 
-3. 系统维护
-   - 定期备份配置文件
-   - 监控系统日志
-   - 及时更新软件依赖
-
-4. 姿态控制
-   - 定期校准 IMU 传感器
-   - 合理设置滤波参数
-   - 注意采样频率
-   - 考虑环境振动影响
-
-5. 平衡控制
-   - 根据实际负载调整 PID 参数
-   - 避免积分饱和
-   - 添加输出限幅
-   - 实现平滑控制过渡
-
-6. 动作编辑
-   - 使用预览功能验证动作
-   - 合理设置动作速度
-   - 注意舵机负载
-   - 保存重要动作序列
-
-7. 视觉处理
-   - 合理设置检测参数
-   - 注意图像预处理
-   - 考虑光照影响
-   - 优化处理性能
-
-8. 动作校准
-   - 选择合适的参考动作
-   - 定期更新参考数据
-   - 合理设置差异阈值
-   - 记录校准日志
-
-9. 并行执行
-   - 控制并行任务数量
-   - 注意资源竞争
-   - 实现优雅停止
-   - 处理执行异常
-
-10. 消息处理
-    - 避免长时间阻塞
-    - 合理设置队列大小
-    - 实现消息过滤
-    - 处理超时情况
-
-11. 状态管理
-    - 定义清晰的状态转换
-    - 实现状态恢复机制
-    - 记录状态变化历史
-    - 处理异常状态
-
-12. 任务规划
-    - 合理设置任务依赖
-    - 实现任务超时处理
-    - 提供任务取消机制
-    - 记录任务执行日志
+21. 版本管理
+    - 规范版本命名
+    - 添加详细注释
+    - 定期清理旧版本
+    - 保持版本完整性
 
 ## 系统特点
 
@@ -917,6 +921,24 @@ robot/
     - 实现任务超时处理
     - 提供任务取消机制
     - 记录任务执行日志
+
+13. 动作优化
+    - 合理设置速度限制
+    - 选择合适的平滑窗口
+    - 注意加速度约束
+    - 避免过度平滑
+
+14. 动作分析
+    - 定期检查异常
+    - 关注关键帧
+    - 监控性能指标
+    - 分析优化效果
+
+15. 版本管理
+    - 规范版本命名
+    - 添加详细注释
+    - 定期清理旧版本
+    - 保持版本完整性
 
 ## 版本历史
 
@@ -1372,3 +1394,21 @@ status = planner.get_task_status("grab")
     - 实现任务超时处理
     - 提供任务取消机制
     - 记录任务执行日志
+
+19. 动作优化
+    - 合理设置速度限制
+    - 选择合适的平滑窗口
+    - 注意加速度约束
+    - 避免过度平滑
+
+20. 动作分析
+    - 定期检查异常
+    - 关注关键帧
+    - 监控性能指标
+    - 分析优化效果
+
+21. 版本管理
+    - 规范版本命名
+    - 添加详细注释
+    - 定期清理旧版本
+    - 保持版本完整性
