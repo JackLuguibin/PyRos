@@ -140,6 +140,84 @@ sensor_data = state_manager.get_state('sensors')
 full_state = state_manager.get_full_state()
 ```
 
+### 4. 动作组管理增强
+
+系统提供了增强的动作组管理功能：
+
+```python
+from robot.actions.action_manager import ActionManager
+
+# 创建动作管理器
+manager = ActionManager()
+
+# 从文件加载动作组
+manager.load_from_file('actions/dance.yaml')
+
+# 执行动作组（支持回调）
+def on_complete(name: str, success: bool):
+    print(f"动作组 {name} 执行{'成功' if success else '失败'}")
+
+manager.execute('dance', parallel=True, callback=on_complete)
+```
+
+特点：
+- 支持动作组的并行执行
+- 提供执行完成回调
+- 支持动态停止功能
+- 线程安全的状态管理
+
+### 5. 视觉处理增强
+
+新增人脸检测功能：
+
+```python
+from robot.vision.face_detector import FaceDetector
+
+# 创建人脸检测器
+detector = FaceDetector()
+
+# 检测人脸
+faces = detector.detect(frame)
+
+# 获取最大人脸
+largest_face = detector.get_largest_face(faces)
+
+# 绘制检测结果
+detector.draw_faces(frame, faces)
+```
+
+特点：
+- 支持多人脸检测
+- 提供人脸位置和大小信息
+- 支持最大人脸识别
+- 可视化检测结果
+
+### 6. 动作校准系统
+
+提供动作校准功能：
+
+```python
+from robot.actions.calibrator import ActionCalibrator
+
+# 创建校准器
+calibrator = ActionCalibrator()
+
+# 设置参考动作
+calibrator.set_reference('wave', reference_frames)
+
+# 校准动作序列
+calibrated = calibrator.calibrate('wave', frames, max_angle_diff=5.0)
+
+# 分析动作差异
+differences = calibrator.analyze_difference('wave', frames)
+```
+
+特点：
+- 基于参考动作的校准
+- 可配置的角度差异阈值
+- 自动角度校正
+- 动作差异分析
+
 ## 配置示例
 
 1. 动作优化配置：
@@ -162,25 +240,80 @@ sensor_filters:
     measurement_variance: 1e-2
 ```
 
+3. 人脸检测配置：
+```yaml
+vision:
+  face_detector:
+    cascade_file: 'haarcascade_frontalface_default.xml'
+    scale_factor: 1.1
+    min_neighbors: 5
+    min_size: [30, 30]
+```
+
+4. 动作校准配置：
+```yaml
+action_calibration:
+  max_angle_diff: 5.0
+  reference_actions:
+    wave:
+      file: 'actions/wave_reference.yaml'
+    dance:
+      file: 'actions/dance_reference.yaml'
+```
+
 ## 最佳实践
 
-10. 动作优化
-    - 根据实际需求调整最大速度
-    - 合理设置平滑因子
-    - 注意动作连续性
-    - 避免过度平滑
+1. 硬件配置
+   - 使用独立的舵机电源供应
+   - 注意 GPIO 引脚的电平要求
+   - 合理布局接线，避免干扰
 
-11. 数据过滤
-    - 选择合适的滤波算法
-    - 调整滤波参数
-    - 监控滤波效果
-    - 及时重置滤波器
+2. 软件开发
+   - 遵循模块化设计原则
+   - 做好异常处理
+   - 及时记录日志
+   - 注意资源的及时释放
 
-12. 状态管理
-    - 及时更新状态
-    - 避免频繁查询
-    - 合理使用状态缓存
-    - 注意线程安全
+3. 系统维护
+   - 定期备份配置文件
+   - 监控系统日志
+   - 及时更新软件依赖
+
+4. 姿态控制
+   - 定期校准 IMU 传感器
+   - 合理设置滤波参数
+   - 注意采样频率
+   - 考虑环境振动影响
+
+5. 平衡控制
+   - 根据实际负载调整 PID 参数
+   - 避免积分饱和
+   - 添加输出限幅
+   - 实现平滑控制过渡
+
+6. 动作编辑
+   - 使用预览功能验证动作
+   - 合理设置动作速度
+   - 注意舵机负载
+   - 保存重要动作序列
+
+7. 视觉处理
+   - 合理设置检测参数
+   - 注意图像预处理
+   - 考虑光照影响
+   - 优化处理性能
+
+8. 动作校准
+   - 选择合适的参考动作
+   - 定期更新参考数据
+   - 合理设置差异阈值
+   - 记录校准日志
+
+9. 并行执行
+   - 控制并行任务数量
+   - 注意资源竞争
+   - 实现优雅停止
+   - 处理执行异常
 
 ## 系统特点
 
@@ -407,47 +540,46 @@ def update_attitude():
     return attitude
 ```
 
-### 4. 实现平衡控制
+### 4. 实现人脸跟踪
 
-1. 创建控制器：
+1. 初始化检测器：
 ```python
-from robot.control.balance_controller import BalanceController
+detector = FaceDetector()
+processor = VisionProcessor()
 
-controller = BalanceController()
-controller.set_target(0.0)  # 设置目标角度
-```
-
-2. 实现控制循环：
-```python
-def balance_loop():
+def track_face():
     while True:
-        current_angle = update_attitude()[0]  # 获取当前俯仰角
-        output = controller.update(current_angle)
-        apply_motor_control(output)  # 应用到电机
-        time.sleep(0.01)
+        frame = processor.get_frame()
+        faces = detector.detect(frame)
+        if faces:
+            face = detector.get_largest_face(faces)
+            # 执行跟踪逻辑
+            track_target(face['center'])
 ```
 
-### 5. 使用动作编辑器
+### 5. 使用动作校准
 
-1. 创建预览回调：
+1. 校准动作序列：
 ```python
-def preview_frame(frame):
-    """处理单帧预览"""
-    for servo_id, angle in frame.items():
-        servo_manager.set_angle(servo_id, angle)
+calibrator = ActionCalibrator()
 
-def preview_sequence(sequence, speed):
-    """处理序列预览"""
-    for frame in sequence:
-        preview_frame(frame)
-        time.sleep(0.5 / speed)
+# 加载参考动作
+with open('reference.yaml', 'r') as f:
+    reference = yaml.safe_load(f)
+calibrator.set_reference('dance', reference)
+
+# 校准动作
+calibrated = calibrator.calibrate('dance', recorded_frames)
 ```
 
-2. 启动编辑器：
+2. 分析动作质量：
 ```python
-editor = ActionSequenceEditor(servo_ids)
-editor.set_preview_callbacks(preview_frame, preview_sequence)
-editor.run()
+# 获取动作差异
+differences = calibrator.analyze_difference('dance', frames)
+
+# 输出分析结果
+for servo_id, diff in differences.items():
+    print(f"舵机 {servo_id} 平均偏差: {diff:.2f}度")
 ```
 
 ## API 参考
@@ -560,6 +692,24 @@ robot/
    - 合理设置动作速度
    - 注意舵机负载
    - 保存重要动作序列
+
+7. 视觉处理
+   - 合理设置检测参数
+   - 注意图像预处理
+   - 考虑光照影响
+   - 优化处理性能
+
+8. 动作校准
+   - 选择合适的参考动作
+   - 定期更新参考数据
+   - 合理设置差异阈值
+   - 记录校准日志
+
+9. 并行执行
+   - 控制并行任务数量
+   - 注意资源竞争
+   - 实现优雅停止
+   - 处理执行异常
 
 ## 版本历史
 
@@ -760,19 +910,21 @@ editor = ActionSequenceEditor(servo_ids=['servo1', 'servo2'])
 
 # 设置预览回调
 def preview_frame(frame):
-    # 处理单帧预览
-    pass
+    """处理单帧预览"""
+    for servo_id, angle in frame.items():
+        servo_manager.set_angle(servo_id, angle)
 
 def preview_sequence(sequence, speed):
-    # 处理序列预览
-    pass
+    """处理序列预览"""
+    for frame in sequence:
+        preview_frame(frame)
+        time.sleep(0.5 / speed)
+```
 
-editor.set_preview_callbacks(
-    frame_callback=preview_frame,
-    sequence_callback=preview_sequence
-)
-
-# 运行编辑器
+2. 启动编辑器：
+```python
+editor = ActionSequenceEditor(servo_ids)
+editor.set_preview_callbacks(preview_frame, preview_sequence)
 editor.run()
 ```
 
@@ -782,43 +934,90 @@ editor.run()
 - 支持单帧预览
 - 支持序列播放
 
-### 配置示例
+### 4. 实现人脸跟踪
 
-1. IMU 传感器配置：
-```yaml
-sensors:
-  imu1:
-    type: imu
-    bus: 1
-    address: 0x68
+1. 初始化检测器：
+```python
+detector = FaceDetector()
+processor = VisionProcessor()
+
+def track_face():
+    while True:
+        frame = processor.get_frame()
+        faces = detector.detect(frame)
+        if faces:
+            face = detector.get_largest_face(faces)
+            # 执行跟踪逻辑
+            track_target(face['center'])
 ```
 
-2. 平衡控制参数：
-```yaml
-balance_control:
-  pid:
-    kp: 20.0
-    ki: 0.1
-    kd: 0.4
-  target_angle: 0.0
+### 5. 使用动作校准
+
+1. 校准动作序列：
+```python
+calibrator = ActionCalibrator()
+
+# 加载参考动作
+with open('reference.yaml', 'r') as f:
+    reference = yaml.safe_load(f)
+calibrator.set_reference('dance', reference)
+
+# 校准动作
+calibrated = calibrator.calibrate('dance', recorded_frames)
 ```
+
+2. 分析动作质量：
+```python
+# 获取动作差异
+differences = calibrator.analyze_difference('dance', frames)
+
+# 输出分析结果
+for servo_id, diff in differences.items():
+    print(f"舵机 {servo_id} 平均偏差: {diff:.2f}度")
+```
+
+### 6. 动作校准系统
+
+提供动作校准功能：
+
+```python
+from robot.actions.calibrator import ActionCalibrator
+
+# 创建校准器
+calibrator = ActionCalibrator()
+
+# 设置参考动作
+calibrator.set_reference('wave', reference_frames)
+
+# 校准动作序列
+calibrated = calibrator.calibrate('wave', frames, max_angle_diff=5.0)
+
+# 分析动作差异
+differences = calibrator.analyze_difference('wave', frames)
+```
+
+特点：
+- 基于参考动作的校准
+- 可配置的角度差异阈值
+- 自动角度校正
+- 动作差异分析
 
 ## 最佳实践
 
-7. 姿态控制
-   - 定期校准 IMU 传感器
-   - 合理设置滤波参数
-   - 注意采样频率
-   - 考虑环境振动影响
+13. 视觉处理
+    - 合理设置检测参数
+    - 注意图像预处理
+    - 考虑光照影响
+    - 优化处理性能
 
-8. 平衡控制
-   - 根据实际负载调整 PID 参数
-   - 避免积分饱和
-   - 添加输出限幅
-   - 实现平滑控制过渡
+14. 动作校准
+    - 选择合适的参考动作
+    - 定期更新参考数据
+    - 合理设置差异阈值
+    - 记录校准日志
 
-9. 动作编辑
-   - 使用预览功能验证动作
-   - 合理设置动作速度
-   - 注意舵机负载
-   - 保存重要动作序列
+15. 并行执行
+    - 控制并行任务数量
+    - 注意资源竞争
+    - 实现优雅停止
+    - 处理执行异常
