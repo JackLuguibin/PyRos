@@ -1,10 +1,124 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 import numpy as np
+from dataclasses import dataclass
 import logging
+from ..model import RobotDynamics, JointState, TrajectoryOptimizer
+
+@dataclass
+class TrajectoryConfig:
+    """轨迹生成配置"""
+    time_step: float = 0.01  # 时间步长(秒)
+    max_velocity: float = 1.0  # 最大速度
+    max_acceleration: float = 2.0  # 最大加速度
+    min_smoothness: float = 0.1  # 最小平滑度
 
 class TrajectoryGenerator:
-    def __init__(self, logger: logging.Logger = None):
-        self.logger = logger
+    """轨迹生成器"""
+    
+    def __init__(self, config: Dict, robot_dynamics: RobotDynamics,
+                 logger: Optional[logging.Logger] = None):
+        """初始化轨迹生成器
+        
+        Args:
+            config: 轨迹生成配置
+            robot_dynamics: 机器人动力学模型
+            logger: 日志记录器
+        """
+        self.logger = logger or logging.getLogger('TrajectoryGenerator')
+        self.config = TrajectoryConfig(**config)
+        self.dynamics = robot_dynamics
+        
+        # 创建轨迹优化器
+        self.optimizer = TrajectoryOptimizer(
+            config=config.get('optimizer', {}),
+            robot_dynamics=robot_dynamics,
+            logger=logger
+        )
+        
+    def generate_trajectory(self, waypoints: List[Dict[str, JointState]]) -> List[Dict[str, JointState]]:
+        """生成轨迹
+        
+        Args:
+            waypoints: 路径点列表
+            
+        Returns:
+            trajectory: 轨迹点列表
+        """
+        try:
+            # 检查路径点
+            if len(waypoints) < 2:
+                raise ValueError("至少需要两个路径点")
+                
+            # 插值生成轨迹
+            trajectory = self._interpolate_waypoints(waypoints)
+            
+            # 优化轨迹
+            optimized = self.optimizer.optimize_trajectory(trajectory)
+            
+            return optimized
+            
+        except Exception as e:
+            self.logger.error(f"轨迹生成失败: {str(e)}")
+            return waypoints
+            
+    def _interpolate_waypoints(self, waypoints: List[Dict[str, JointState]]) -> List[Dict[str, JointState]]:
+        """插值路径点
+        
+        Args:
+            waypoints: 路径点列表
+            
+        Returns:
+            trajectory: 插值后的轨迹点列表
+        """
+        trajectory = []
+        
+        for i in range(len(waypoints) - 1):
+            start = waypoints[i]
+            end = waypoints[i + 1]
+            
+            # 计算两点间的最大距离
+            max_distance = max(
+                abs(end[joint].position - start[joint].position)
+                for joint in start.keys()
+            )
+            
+            # 计算插值点数
+            num_points = max(
+                2,
+                int(max_distance / (self.config.max_velocity * self.config.time_step))
+            )
+            
+            # 线性插值
+            for j in range(num_points):
+                t = j / (num_points - 1)
+                point = {}
+                
+                for joint in start.keys():
+                    # 位置插值
+                    position = (1 - t) * start[joint].position + t * end[joint].position
+                    
+                    # 速度计算
+                    velocity = (end[joint].position - start[joint].position) / (
+                        (num_points - 1) * self.config.time_step
+                    )
+                    
+                    # 加速度计算
+                    if j == 0:
+                        acceleration = (velocity - start[joint].velocity) / self.config.time_step
+                    elif j == num_points - 1:
+                        acceleration = (end[joint].velocity - velocity) / self.config.time_step
+                    else:
+                        acceleration = 0.0
+                        
+                    point[joint] = JointState(
+                        position=position,
+                        velocity=velocity,
+                        acceleration=acceleration
+                    )
+                    
+                trajectory.append(point)
+                
+        return trajectory
         
     def generate_linear(self, start: np.ndarray, end: np.ndarray,
                        duration: float, dt: float = 0.01) -> List[np.ndarray]:

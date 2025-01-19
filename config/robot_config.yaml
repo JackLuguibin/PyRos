@@ -136,4 +136,13 @@ cache:
 rate_limit:
   max_requests: 100
   window_size: 60
-  burst_size: 10 
+  burst_size: 10
+
+# 轨迹优化配置
+model:
+  trajectory:
+    max_iterations: 100
+    tolerance: 1e-6
+    constraints_weight: 1.0
+    smoothness_weight: 0.5
+    method: SLSQP 

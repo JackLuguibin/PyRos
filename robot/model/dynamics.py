@@ -6,165 +6,135 @@ from ..core.transform import Transform
 from ..kinematics.kinematics import JointState
 
 @dataclass
-class DynamicsParams:
-    """动力学参数"""
-    mass: float = 0.0  # 质量(kg)
-    inertia: np.ndarray = None  # 惯性张量(3x3)
-    com: np.ndarray = None  # 质心位置[x, y, z]
-    damping: float = 0.0  # 阻尼系数
-    friction: float = 0.0  # 摩擦系数
-    
-@dataclass
-class DynamicsState:
-    """动力学状态"""
-    position: np.ndarray = None  # 位置
-    velocity: np.ndarray = None  # 速度
-    acceleration: np.ndarray = None  # 加速度
-    force: np.ndarray = None  # 力
-    torque: np.ndarray = None  # 力矩
+class LinkParams:
+    """连杆参数"""
+    mass: float  # 质量
+    inertia: np.ndarray  # 惯性张量
+    com: np.ndarray  # 质心位置
+    damping: float  # 阻尼系数
+    friction: float  # 摩擦系数
 
 class RobotDynamics:
     """机器人动力学"""
     
     def __init__(self, config: Dict, logger: Optional[logging.Logger] = None):
+        """初始化动力学模型
+        
+        Args:
+            config: 动力学配置
+            logger: 日志记录器
+        """
         self.logger = logger or logging.getLogger('RobotDynamics')
         self.config = config
         
-        # 动力学参数
-        self.link_params: Dict[str, DynamicsParams] = {}
-        self._init_dynamics_params()
-        
-        # 重力加速度
-        self.gravity = np.array([0, 0, -9.81])
-        
-        # 计算缓存
-        self.mass_matrix_cache = {}
-        self.coriolis_cache = {}
-        self.gravity_cache = {}
-        self.cache_valid = False
-        
-    def _init_dynamics_params(self):
-        """初始化动力学参数"""
-        try:
-            params = self.config.get('dynamics_params', {})
-            for link_name, link_params in params.items():
-                self.link_params[link_name] = DynamicsParams(
-                    mass=link_params.get('mass', 0.0),
-                    inertia=np.array(link_params.get('inertia', np.eye(3))),
-                    com=np.array(link_params.get('com', [0, 0, 0])),
-                    damping=link_params.get('damping', 0.0),
-                    friction=link_params.get('friction', 0.0)
-                )
-        except Exception as e:
-            self.logger.error(f"初始化动力学参数失败: {str(e)}")
+        # 解析连杆参数
+        self.links = {}
+        for name, params in config.get('dynamics_params', {}).items():
+            self.links[name] = LinkParams(
+                mass=params['mass'],
+                inertia=np.array(params['inertia']),
+                com=np.array(params['com']),
+                damping=params['damping'],
+                friction=params['friction']
+            )
             
-    def compute_mass_matrix(self, joint_states: Dict[str, JointState]) -> np.ndarray:
+    def get_joint_limits(self) -> List[Tuple[float, float]]:
+        """获取关节限位"""
+        return self.config.get('joint_limits', [])
+        
+    def compute_mass_matrix(self, q: np.ndarray) -> np.ndarray:
         """计算质量矩阵
         
         Args:
-            joint_states: 关节状态
+            q: 关节位置
             
         Returns:
-            nxn质量矩阵
+            M: 质量矩阵
         """
         try:
-            # 检查缓存
-            cache_key = tuple(
-                (name, state.position)
-                for name, state in joint_states.items()
-            )
-            if self.cache_valid and cache_key in self.mass_matrix_cache:
-                return self.mass_matrix_cache[cache_key]
-                
-            # 计算质量矩阵
-            n_joints = len(joint_states)
-            M = np.zeros((n_joints, n_joints))
+            # 简化实现，实际应使用完整的动力学计算
+            n_dof = len(q)
+            M = np.zeros((n_dof, n_dof))
             
-            # 计算每个连杆的贡献
-            for i in range(n_joints):
-                for j in range(n_joints):
-                    M[i,j] = self._compute_mass_element(i, j, joint_states)
-                    
-            # 更新缓存
-            self.mass_matrix_cache[cache_key] = M
+            for i, link in enumerate(self.links.values()):
+                M[i, i] = link.mass
+                
             return M
             
         except Exception as e:
             self.logger.error(f"计算质量矩阵失败: {str(e)}")
-            return np.eye(len(joint_states))
+            return np.eye(len(q))
             
-    def compute_coriolis_matrix(self, joint_states: Dict[str, JointState]) -> np.ndarray:
-        """计算科氏力矩阵
+    def compute_coriolis(self, q: np.ndarray, qd: np.ndarray) -> np.ndarray:
+        """计算科氏力和离心力
         
         Args:
-            joint_states: 关节状态
+            q: 关节位置
+            qd: 关节速度
             
         Returns:
-            nxn科氏力矩阵
+            C: 科氏力和离心力向量
         """
         try:
-            # 检查缓存
-            cache_key = tuple(
-                (name, state.position, state.velocity)
-                for name, state in joint_states.items()
-            )
-            if self.cache_valid and cache_key in self.coriolis_cache:
-                return self.coriolis_cache[cache_key]
-                
-            # 计算科氏力矩阵
-            n_joints = len(joint_states)
-            C = np.zeros((n_joints, n_joints))
+            # 简化实现
+            n_dof = len(q)
+            C = np.zeros(n_dof)
             
-            # 计算每个连杆的贡献
-            for i in range(n_joints):
-                for j in range(n_joints):
-                    for k in range(n_joints):
-                        C[i,j] += self._compute_christoffel_symbol(
-                            i, j, k, joint_states
-                        ) * joint_states[f"joint_{k}"].velocity
-                        
-            # 更新缓存
-            self.coriolis_cache[cache_key] = C
+            for i, link in enumerate(self.links.values()):
+                C[i] = link.damping * qd[i]
+                
             return C
             
         except Exception as e:
-            self.logger.error(f"计算科氏力矩阵失败: {str(e)}")
-            return np.zeros((len(joint_states), len(joint_states)))
+            self.logger.error(f"计算科氏力失败: {str(e)}")
+            return np.zeros_like(q)
             
-    def compute_gravity_vector(self, joint_states: Dict[str, JointState]) -> np.ndarray:
-        """计算重力向量
+    def compute_gravity(self, q: np.ndarray) -> np.ndarray:
+        """计算重力
         
         Args:
-            joint_states: 关节状态
+            q: 关节位置
             
         Returns:
-            nx1重力向量
+            G: 重力向量
         """
         try:
-            # 检查缓存
-            cache_key = tuple(
-                (name, state.position)
-                for name, state in joint_states.items()
-            )
-            if self.cache_valid and cache_key in self.gravity_cache:
-                return self.gravity_cache[cache_key]
-                
-            # 计算重力向量
-            n_joints = len(joint_states)
-            G = np.zeros(n_joints)
+            # 简化实现
+            g = 9.81  # 重力加速度
+            n_dof = len(q)
+            G = np.zeros(n_dof)
             
-            # 计算每个连杆的贡献
-            for i in range(n_joints):
-                G[i] = self._compute_gravity_term(i, joint_states)
+            for i, link in enumerate(self.links.values()):
+                G[i] = link.mass * g * link.com[2]  # 假设z轴向上
                 
-            # 更新缓存
-            self.gravity_cache[cache_key] = G
             return G
             
         except Exception as e:
-            self.logger.error(f"计算重力向量失败: {str(e)}")
-            return np.zeros(len(joint_states))
+            self.logger.error(f"计算重力失败: {str(e)}")
+            return np.zeros_like(q)
             
+    def compute_friction(self, qd: np.ndarray) -> np.ndarray:
+        """计算摩擦力
+        
+        Args:
+            qd: 关节速度
+            
+        Returns:
+            F: 摩擦力向量
+        """
+        try:
+            n_dof = len(qd)
+            F = np.zeros(n_dof)
+            
+            for i, link in enumerate(self.links.values()):
+                F[i] = link.friction * np.sign(qd[i])
+                
+            return F
+            
+        except Exception as e:
+            self.logger.error(f"计算摩擦力失败: {str(e)}")
+            return np.zeros_like(qd)
+
     def compute_inverse_dynamics(self, joint_states: Dict[str, JointState],
                                desired_accel: np.ndarray) -> np.ndarray:
         """计算逆动力学
@@ -178,9 +148,10 @@ class RobotDynamics:
         """
         try:
             # 计算动力学项
-            M = self.compute_mass_matrix(joint_states)
-            C = self.compute_coriolis_matrix(joint_states)
-            G = self.compute_gravity_vector(joint_states)
+            M = self.compute_mass_matrix(np.array([state.position for state in joint_states.values()]))
+            C = self.compute_coriolis(np.array([state.position for state in joint_states.values()]),
+                                      np.array([state.velocity for state in joint_states.values()]))
+            G = self.compute_gravity(np.array([state.position for state in joint_states.values()]))
             
             # 提取关节速度
             q_dot = np.array([
@@ -193,10 +164,10 @@ class RobotDynamics:
             
             # 添加摩擦力和阻尼
             for i, (name, state) in enumerate(joint_states.items()):
-                if name in self.link_params:
-                    params = self.link_params[name]
-                    tau[i] += params.friction * np.sign(state.velocity)
-                    tau[i] += params.damping * state.velocity
+                if name in self.links:
+                    link = self.links[name]
+                    tau[i] += link.friction * np.sign(state.velocity)
+                    tau[i] += link.damping * state.velocity
                     
             return tau
             
@@ -217,9 +188,10 @@ class RobotDynamics:
         """
         try:
             # 计算动力学项
-            M = self.compute_mass_matrix(joint_states)
-            C = self.compute_coriolis_matrix(joint_states)
-            G = self.compute_gravity_vector(joint_states)
+            M = self.compute_mass_matrix(np.array([state.position for state in joint_states.values()]))
+            C = self.compute_coriolis(np.array([state.position for state in joint_states.values()]),
+                                      np.array([state.velocity for state in joint_states.values()]))
+            G = self.compute_gravity(np.array([state.position for state in joint_states.values()]))
             
             # 提取关节速度
             q_dot = np.array([
@@ -230,10 +202,10 @@ class RobotDynamics:
             # 计算摩擦力和阻尼
             F = np.zeros_like(joint_torques)
             for i, (name, state) in enumerate(joint_states.items()):
-                if name in self.link_params:
-                    params = self.link_params[name]
-                    F[i] = params.friction * np.sign(state.velocity)
-                    F[i] += params.damping * state.velocity
+                if name in self.links:
+                    link = self.links[name]
+                    F[i] = link.friction * np.sign(state.velocity)
+                    F[i] += link.damping * state.velocity
                     
             # 计算加速度
             q_ddot = np.linalg.solve(
@@ -245,22 +217,4 @@ class RobotDynamics:
             
         except Exception as e:
             self.logger.error(f"计算正向动力学失败: {str(e)}")
-            return np.zeros(len(joint_states))
-            
-    def _compute_mass_element(self, i: int, j: int,
-                            joint_states: Dict[str, JointState]) -> float:
-        """计算质量矩阵元素"""
-        # 根据实际机器人参数实现
-        return 0.0
-        
-    def _compute_christoffel_symbol(self, i: int, j: int, k: int,
-                                  joint_states: Dict[str, JointState]) -> float:
-        """计算克氏符号"""
-        # 根据实际机器人参数实现
-        return 0.0
-        
-    def _compute_gravity_term(self, i: int,
-                            joint_states: Dict[str, JointState]) -> float:
-        """计算重力项"""
-        # 根据实际机器人参数实现
-        return 0.0 
+            return np.zeros(len(joint_states)) 

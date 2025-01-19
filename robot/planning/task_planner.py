@@ -1,92 +1,145 @@
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Any
+from dataclasses import dataclass
 import logging
-import threading
-from enum import Enum
+from ..model import JointState
+from .motion_planner import MotionPlanner
 
-class TaskStatus(Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+@dataclass
+class TaskConfig:
+    """任务规划配置"""
+    max_task_steps: int = 100  # 最大任务步骤数
+    retry_attempts: int = 3  # 重试次数
 
-class Task:
-    def __init__(self, name: str, action: Callable, 
-                 prerequisites: List[str] = None,
-                 timeout: float = None):
-        self.name = name
-        self.action = action
-        self.prerequisites = prerequisites or []
-        self.timeout = timeout
-        self.status = TaskStatus.PENDING
-        self.result = None
-        
 class TaskPlanner:
-    def __init__(self, logger: logging.Logger = None):
-        self.logger = logger
-        self.tasks: Dict[str, Task] = {}
-        self.running_tasks: Dict[str, threading.Thread] = {}
-        self._lock = threading.Lock()
+    """任务规划器"""
+    
+    def __init__(self, config: Dict, motion_planner: MotionPlanner,
+                 logger: Optional[logging.Logger] = None):
+        """初始化任务规划器
         
-    def add_task(self, task: Task):
-        """添加任务"""
-        with self._lock:
-            self.tasks[task.name] = task
+        Args:
+            config: 任务配置
+            motion_planner: 运动规划器
+            logger: 日志记录器
+        """
+        self.logger = logger or logging.getLogger('TaskPlanner')
+        self.config = TaskConfig(**config)
+        self.motion_planner = motion_planner
+        
+    def plan_task(self, task: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        """规划任务
+        
+        Args:
+            task: 任务描述
             
-    def execute_task(self, task_name: str) -> bool:
-        """执行任务"""
-        with self._lock:
-            if task_name not in self.tasks:
-                if self.logger:
-                    self.logger.error(f"任务不存在: {task_name}")
-                return False
+        Returns:
+            plan: 任务计划，失败返回None
+        """
+        try:
+            # 解析任务
+            steps = self._parse_task(task)
+            if not steps:
+                return None
                 
-            task = self.tasks[task_name]
+            # 规划每个步骤
+            plan = []
+            current_state = task.get('initial_state')
             
-            # 检查前置条件
-            for prereq in task.prerequisites:
-                if prereq not in self.tasks or \
-                   self.tasks[prereq].status != TaskStatus.COMPLETED:
-                    if self.logger:
-                        self.logger.error(f"前置条件未满足: {prereq}")
-                    return False
+            for step in steps:
+                # 规划运动
+                trajectory = self._plan_step(current_state, step)
+                if not trajectory:
+                    return None
                     
-            # 创建执行线程
-            def _execute():
-                try:
-                    task.status = TaskStatus.RUNNING
-                    task.result = task.action()
-                    task.status = TaskStatus.COMPLETED
-                except Exception as e:
-                    task.status = TaskStatus.FAILED
-                    task.result = e
-                    if self.logger:
-                        self.logger.error(f"任务执行失败: {task_name}, {e}")
-                finally:
-                    with self._lock:
-                        del self.running_tasks[task_name]
-                        
-            thread = threading.Thread(target=_execute)
-            self.running_tasks[task_name] = thread
-            thread.start()
-            
-            return True
-            
-    def cancel_task(self, task_name: str):
-        """取消任务"""
-        with self._lock:
-            if task_name in self.tasks:
-                self.tasks[task_name].status = TaskStatus.CANCELLED
+                # 更新当前状态
+                current_state = trajectory[-1]
                 
-    def get_task_status(self, task_name: str) -> Optional[TaskStatus]:
-        """获取任务状态"""
-        return self.tasks.get(task_name).status if task_name in self.tasks \
-               else None
-               
-    def cleanup(self):
-        """清理资源"""
-        with self._lock:
-            for task_name in list(self.running_tasks.keys()):
-                self.cancel_task(task_name)
-            for thread in self.running_tasks.values():
-                thread.join() 
+                # 添加到计划中
+                plan.append({
+                    'type': step['type'],
+                    'trajectory': trajectory,
+                    'params': step.get('params', {})
+                })
+                
+            return plan
+            
+        except Exception as e:
+            self.logger.error(f"任务规划失败: {str(e)}")
+            return None
+            
+    def _parse_task(self, task: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        """解析任务"""
+        try:
+            steps = task.get('steps', [])
+            if not steps:
+                raise ValueError("任务步骤为空")
+                
+            if len(steps) > self.config.max_task_steps:
+                raise ValueError("任务步骤过多")
+                
+            return steps
+            
+        except Exception as e:
+            self.logger.error(f"任务解析失败: {str(e)}")
+            return None
+            
+    def _plan_step(self, current_state: Dict[str, JointState],
+                  step: Dict[str, Any]) -> Optional[List[Dict[str, JointState]]]:
+        """规划步骤"""
+        try:
+            # 获取目标状态
+            goal_state = self._get_step_goal(step)
+            if not goal_state:
+                return None
+                
+            # 尝试规划运动
+            for attempt in range(self.config.retry_attempts):
+                trajectory = self.motion_planner.plan_motion(
+                    current_state,
+                    goal_state
+                )
+                if trajectory:
+                    return trajectory
+                    
+                self.logger.warning(f"步骤规划尝试 {attempt + 1} 失败")
+                
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"步骤规划失败: {str(e)}")
+            return None
+            
+    def _get_step_goal(self, step: Dict[str, Any]) -> Optional[Dict[str, JointState]]:
+        """获取步骤目标状态"""
+        try:
+            if 'goal_state' in step:
+                return step['goal_state']
+                
+            # 根据步骤类型生成目标状态
+            if step['type'] == 'move_to':
+                return self._create_move_goal(step['params'])
+            elif step['type'] == 'grasp':
+                return self._create_grasp_goal(step['params'])
+            else:
+                raise ValueError(f"未知的步骤类型: {step['type']}")
+                
+        except Exception as e:
+            self.logger.error(f"获取目标状态失败: {str(e)}")
+            return None
+            
+    def _create_move_goal(self, params: Dict[str, Any]) -> Dict[str, JointState]:
+        """创建移动目标"""
+        # 简单实现：直接使用目标位置
+        return {
+            joint: JointState(position=position)
+            for joint, position in params.get('positions', {}).items()
+        }
+        
+    def _create_grasp_goal(self, params: Dict[str, Any]) -> Dict[str, JointState]:
+        """创建抓取目标"""
+        # 简单实现：设置抓取器位置
+        return {
+            'gripper': JointState(
+                position=0.0 if params.get('open', True) else 1.0
+            )
+        } 

@@ -3,10 +3,8 @@ import numpy as np
 from scipy.optimize import minimize
 from dataclasses import dataclass
 import logging
-
-# 修正导入路径
-from ..model.robot_model import RobotDynamics  # 从 robot/model 导入
-from ..model.joint_state import JointState    # 从 robot/model 导入
+from .robot_model import RobotDynamics
+from .joint_state import JointState
 
 @dataclass
 class OptimizationConfig:
@@ -54,7 +52,7 @@ class TrajectoryOptimizer:
             
             # 构建约束
             constraints = {
-                'joint_limits': self.dynamics.get_joint_limits(),  # 使用动力学模型的方法
+                'joint_limits': self.dynamics.get_joint_limits(),
                 'velocity_limits': [self.config.max_velocity] * waypoints.shape[1],
                 'acceleration_limits': [self.config.max_acceleration] * waypoints.shape[1]
             }
@@ -170,7 +168,7 @@ class TrajectoryOptimizer:
             acceleration = np.diff(velocity, axis=0)
             smoothness_cost = (
                 np.sum(velocity ** 2) + 
-                np.sum(acceleration ** 2)
+                self.config.smoothness_weight * np.sum(acceleration ** 2)
             )
             
         # 总代价
@@ -179,20 +177,11 @@ class TrajectoryOptimizer:
             self.config.smoothness_weight * smoothness_cost
         )
         
-        return float(total_cost)  # 确保返回标量
+        return float(total_cost)
         
     def _get_bounds(self, num_points: int, num_dof: int,
                    constraints: Dict) -> List[Tuple[float, float]]:
-        """获取优化边界
-        
-        Args:
-            num_points: 点数
-            num_dof: 自由度
-            constraints: 约束字典
-            
-        Returns:
-            bounds: 边界列表 [(min, max), ...]
-        """
+        """获取优化边界"""
         joint_limits = constraints.get('joint_limits', [])
         if not joint_limits:
             joint_limits = [(-np.inf, np.inf)] * num_dof
@@ -205,16 +194,7 @@ class TrajectoryOptimizer:
         
     def _get_constraints(self, num_points: int, num_dof: int,
                         constraints: Dict) -> List[Dict]:
-        """获取优化约束
-        
-        Args:
-            num_points: 点数
-            num_dof: 自由度
-            constraints: 约束字典
-            
-        Returns:
-            constraints: 约束列表
-        """
+        """获取优化约束"""
         velocity_limits = constraints.get('velocity_limits', [])
         acceleration_limits = constraints.get('acceleration_limits', [])
         
@@ -224,7 +204,7 @@ class TrajectoryOptimizer:
         if velocity_limits and num_points > 1:
             def velocity_constraint(x):
                 trajectory = x.reshape(num_points, num_dof)
-                velocity = np.diff(trajectory, axis=0)
+                velocity = np.diff(trajectory, axis=0) / self.config.min_waypoint_distance
                 return np.array([
                     limit - np.max(np.abs(velocity[:, i]))
                     for i, limit in enumerate(velocity_limits)
@@ -239,8 +219,8 @@ class TrajectoryOptimizer:
         if acceleration_limits and num_points > 2:
             def acceleration_constraint(x):
                 trajectory = x.reshape(num_points, num_dof)
-                velocity = np.diff(trajectory, axis=0)
-                acceleration = np.diff(velocity, axis=0)
+                velocity = np.diff(trajectory, axis=0) / self.config.min_waypoint_distance
+                acceleration = np.diff(velocity, axis=0) / self.config.min_waypoint_distance
                 return np.array([
                     limit - np.max(np.abs(acceleration[:, i]))
                     for i, limit in enumerate(acceleration_limits)

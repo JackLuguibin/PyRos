@@ -1,102 +1,151 @@
-from typing import List, Tuple, Optional
+from typing import List, Dict, Optional, Tuple
 import numpy as np
+from dataclasses import dataclass
 import logging
+from ..model import RobotDynamics, JointState
+from .trajectory_generator import TrajectoryGenerator
+
+@dataclass
+class PlanningConfig:
+    """运动规划配置"""
+    planning_time: float = 5.0  # 规划时间限制(秒)
+    goal_tolerance: float = 0.01  # 目标容差
+    collision_check_resolution: float = 0.1  # 碰撞检测分辨率
+    max_planning_attempts: int = 10  # 最大规划尝试次数
 
 class MotionPlanner:
-    def __init__(self, logger: logging.Logger = None):
-        self.logger = logger
-        self.joint_limits = {}  # 关节限位
-        self.obstacles = []     # 障碍物列表
-        
-    def set_joint_limits(self, limits: dict):
-        """设置关节限位"""
-        self.joint_limits = limits
-        
-    def add_obstacle(self, position: np.ndarray, size: np.ndarray):
-        """添加障碍物"""
-        self.obstacles.append({
-            'position': position,
-            'size': size
-        })
-        
-    def plan_path(self, start: np.ndarray, goal: np.ndarray, 
-                  resolution: float = 0.1) -> Optional[List[np.ndarray]]:
-        """规划路径
+    """运动规划器"""
+    
+    def __init__(self, config: Dict, robot_dynamics: RobotDynamics,
+                 logger: Optional[logging.Logger] = None):
+        """初始化运动规划器
         
         Args:
-            start: 起始关节角度
-            goal: 目标关节角度
-            resolution: 路径分辨率
+            config: 规划配置
+            robot_dynamics: 机器人动力学模型
+            logger: 日志记录器
+        """
+        self.logger = logger or logging.getLogger('MotionPlanner')
+        self.config = PlanningConfig(**config)
+        self.dynamics = robot_dynamics
+        
+        # 创建轨迹生成器
+        self.trajectory_generator = TrajectoryGenerator(
+            config=config.get('trajectory', {}),
+            robot_dynamics=robot_dynamics,
+            logger=logger
+        )
+        
+    def plan_motion(self, start_state: Dict[str, JointState],
+                   goal_state: Dict[str, JointState]) -> Optional[List[Dict[str, JointState]]]:
+        """规划运动
+        
+        Args:
+            start_state: 起始状态
+            goal_state: 目标状态
             
         Returns:
-            路径点列表
+            trajectory: 轨迹点列表，失败返回None
         """
-        # 实现RRT或其他路径规划算法
-        return self._rrt_plan(start, goal)
-        
-    def check_collision(self, joint_angles: np.ndarray) -> bool:
-        """检查碰撞"""
-        # 实现碰撞检测
-        pass
-        
-    def smooth_path(self, path: List[np.ndarray]) -> List[np.ndarray]:
-        """平滑路径"""
-        # 实现路径平滑
-        pass
-        
-    def _rrt_plan(self, start: np.ndarray, goal: np.ndarray, 
-                 max_iter: int = 1000, step_size: float = 0.1) -> Optional[List[np.ndarray]]:
-        """RRT路径规划算法"""
-        class Node:
-            def __init__(self, q):
-                self.q = q
-                self.parent = None
+        try:
+            # 检查起始和目标状态
+            if not self._check_state_validity(start_state):
+                raise ValueError("起始状态无效")
+            if not self._check_state_validity(goal_state):
+                raise ValueError("目标状态无效")
+                
+            # 尝试规划
+            for attempt in range(self.config.max_planning_attempts):
+                # 生成路径点
+                waypoints = self._generate_waypoints(start_state, goal_state)
+                
+                # 检查路径有效性
+                if self._check_path_validity(waypoints):
+                    # 生成轨迹
+                    trajectory = self.trajectory_generator.generate_trajectory(waypoints)
+                    return trajectory
+                    
+                self.logger.warning(f"规划尝试 {attempt + 1} 失败")
+                
+            return None
             
-        nodes = [Node(start)]
-        
-        for _ in range(max_iter):
-            # 随机采样构型
-            if np.random.random() < 0.1:  # 10%概率直接采样目标点
-                q_rand = goal
-            else:
-                q_rand = self._random_config()
+        except Exception as e:
+            self.logger.error(f"运动规划失败: {str(e)}")
+            return None
             
-            # 找到最近节点
-            nearest = min(nodes, key=lambda n: np.linalg.norm(n.q - q_rand))
+    def _check_state_validity(self, state: Dict[str, JointState]) -> bool:
+        """检查状态有效性"""
+        try:
+            # 检查关节限位
+            joint_limits = self.dynamics.get_joint_limits()
             
-            # 向随机点延伸
-            direction = q_rand - nearest.q
-            distance = np.linalg.norm(direction)
-            if distance > step_size:
-                direction = direction / distance * step_size
+            for (joint_name, joint_state), (min_pos, max_pos) in zip(
+                state.items(), joint_limits
+            ):
+                if not (min_pos <= joint_state.position <= max_pos):
+                    return False
+                    
+            return True
             
-            q_new = nearest.q + direction
+        except Exception as e:
+            self.logger.error(f"状态检查失败: {str(e)}")
+            return False
             
-            # 检查是否可行
-            if self.check_collision(q_new):
-                continue
+    def _check_path_validity(self, waypoints: List[Dict[str, JointState]]) -> bool:
+        """检查路径有效性"""
+        try:
+            # 检查每个路径点
+            for point in waypoints:
+                if not self._check_state_validity(point):
+                    return False
+                    
+            # 检查路径连续性
+            for i in range(len(waypoints) - 1):
+                if not self._check_segment_validity(waypoints[i], waypoints[i + 1]):
+                    return False
+                    
+            return True
             
-            # 添加新节点
-            new_node = Node(q_new)
-            new_node.parent = nearest
-            nodes.append(new_node)
+        except Exception as e:
+            self.logger.error(f"路径检查失败: {str(e)}")
+            return False
             
-            # 检查是否达到目标
-            if np.linalg.norm(q_new - goal) < step_size:
-                # 构建路径
-                path = []
-                current = new_node
-                while current is not None:
-                    path.append(current.q)
-                    current = current.parent
-                return list(reversed(path))
+    def _check_segment_validity(self, start: Dict[str, JointState],
+                              end: Dict[str, JointState]) -> bool:
+        """检查路径段有效性"""
+        try:
+            # 计算最大关节运动
+            max_motion = max(
+                abs(end[joint].position - start[joint].position)
+                for joint in start.keys()
+            )
             
-        return None
-    
-    def _random_config(self) -> np.ndarray:
-        """生成随机构型"""
-        config = []
-        for joint, limits in self.joint_limits.items():
-            min_val, max_val = limits
-            config.append(np.random.uniform(min_val, max_val))
-        return np.array(config) 
+            # 计算检查点数
+            num_checks = max(
+                2,
+                int(max_motion / self.config.collision_check_resolution)
+            )
+            
+            # 检查中间点
+            for i in range(1, num_checks - 1):
+                t = i / (num_checks - 1)
+                point = {}
+                
+                for joint in start.keys():
+                    position = (1 - t) * start[joint].position + t * end[joint].position
+                    point[joint] = JointState(position=position)
+                    
+                if not self._check_state_validity(point):
+                    return False
+                    
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"路径段检查失败: {str(e)}")
+            return False
+            
+    def _generate_waypoints(self, start: Dict[str, JointState],
+                          goal: Dict[str, JointState]) -> List[Dict[str, JointState]]:
+        """生成路径点"""
+        # 简单实现：直接连接起点和终点
+        return [start, goal] 
